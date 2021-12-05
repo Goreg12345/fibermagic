@@ -7,3 +7,4 @@ dependencies:
   - black
   - scipy
   - scikit-learn
+  - plotly=5.4.0
