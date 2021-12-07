@@ -14,7 +14,7 @@ Reference:
 
 
 def get_zdFF(
-    reference, signal, smooth_win=10, remove=200, lambd=5e4, porder=1, itermax=50
+    df, wave_len, smooth_win=10, remove=200, lambd=5e4, porder=1, itermax=50
 ):
     """
     Calculates z-score dF/F signal based on fiber photometry calcium-idependent
@@ -38,19 +38,19 @@ def get_zdFF(
     import numpy as np
     from sklearn.linear_model import Lasso
 
+    # remove beginning and end of recording
+    df = df.iloc[remove:-remove]
+
     # Smooth signal
-    reference = smooth_signal(reference, smooth_win)
-    signal = smooth_signal(signal, smooth_win)
+    reference = smooth_signal(df[410], smooth_win)
+    signal = smooth_signal(df[wave_len], smooth_win)
 
     # Remove slope using airPLS algorithm
-    r_base = airPLS(reference, lambda_=lambd, porder=porder, itermax=itermax)
-    s_base = airPLS(signal, lambda_=lambd, porder=porder, itermax=itermax)
-
-    # Remove baseline and the begining of recording
-    reference = reference[remove:] - r_base[remove:]
-    signal = signal[remove:] - s_base[remove:]
+    reference -= airPLS(reference, lambda_=lambd, porder=porder, itermax=itermax)
+    signal -= airPLS(signal, lambda_=lambd, porder=porder, itermax=itermax)
 
     # Standardize signals
+    # TODO: why use median and not mean?
     reference = (reference - np.median(reference)) / np.std(reference)
     signal = (signal - np.median(signal)) / np.std(signal)
 
@@ -69,10 +69,8 @@ def get_zdFF(
         n,
     )
 
-    # z dFF
-    zdFF = signal - reference
-
-    return zdFF
+    df.loc[:, 'zdFF'] = signal - reference
+    return df
 
 
 def smooth_signal(x, window_len=10, window="flat"):

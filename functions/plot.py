@@ -1,4 +1,5 @@
 from matplotlib import pyplot as plt
+import plotly.express as px
 
 
 def plot_seperate(signal, reference):
@@ -15,3 +16,9 @@ def plot_single(data):
     ax1 = fig.add_subplot(111)
     ax1.plot(data, 'black', linewidth=1.5)
     plt.show()
+
+
+def heatmap(time_locked):
+    fig = px.imshow(time_locked.T)
+    fig.update_xaxes(side="top")
+    fig.show()
