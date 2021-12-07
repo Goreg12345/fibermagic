@@ -18,7 +18,19 @@ def plot_single(data):
     plt.show()
 
 
-def heatmap(time_locked):
-    fig = px.imshow(time_locked.T)
+def heatmap(time_locked, mouse, event='FD'):
+    fig = px.imshow(time_locked.T,
+                    title='Evoked Responses for {mouse} for lever {event}'.format(mouse=mouse, event=event))
     fig.update_xaxes(side="top")
-    fig.show()
+    fig.add_vline(x=360, line_dash="dash", line_color="green")
+    return fig
+
+
+def average_line(time_locked, mouse, ):
+    fig = px.line(time_locked['average'], title='Average of {mouse}'.format(mouse=mouse),
+                  labels={
+                      'index': 'Time in Frames',
+                      'value': 'zdFF'
+                  })
+    fig.add_vline(x=360, line_dash="dash", line_color="green")
+    return fig
