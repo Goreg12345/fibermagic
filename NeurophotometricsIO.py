@@ -72,9 +72,9 @@ def synchronize(logs, sync_signals, timestamps):
 
 if __name__ == '__main__':
     DATA_DIR = Path(r'C:\Users\Georg\OneDrive - UvA\0 Research\data')
-    ANALYSIS = 'PR5'
+    ANALYSIS = 'PR8'
     DATA_FILE = 'FED3.csv'
-    LOG_FILE = 'FRfD2AdoraCrepilotPR5B8624-1.log'
+    LOG_FILE = 'FRfD2AdoraCrepilotPR8B8624-1.log'
     MOUSE_NAME = 'B8624'
     LED = '7'
     FREQUENCY = 25

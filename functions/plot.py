@@ -11,11 +11,13 @@ def plot_seperate(signal, reference):
     plt.show()
 
 
-def plot_single(data):
-    fig = plt.figure(figsize=(16, 8))
-    ax1 = fig.add_subplot(111)
-    ax1.plot(data, 'black', linewidth=1.5)
-    plt.show()
+def plot_single(data, title='', x_lab='', y_lab=''):
+    fig = px.line(data, title=title,
+                  labels={
+                      'index': x_lab,
+                      'value': y_lab
+                  })
+    return fig
 
 
 def heatmap(time_locked, mouse, event='FD'):
