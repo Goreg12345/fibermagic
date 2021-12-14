@@ -1,6 +1,9 @@
 from matplotlib import pyplot as plt
 import plotly.express as px
 import pandas as pd
+from plotly.subplots import make_subplots
+
+from NeurophotometricsIO import lock_time_to_event
 
 
 def plot_seperate(signal, reference):
@@ -23,9 +26,14 @@ def plot_single(data, title='', x_lab='', y_lab=''):
 
 def heatmap(time_locked, mouse, event='FD'):
     fig = px.imshow(time_locked.T,
-                    title='Evoked Responses for {mouse} for lever {event}'.format(mouse=mouse, event=event))
+                    title='Evoked Responses for {mouse} for lever {event}'.format(mouse=mouse, event=event),
+                    labels={
+                        'index': 'asdf',
+                        'value': 'asdf'
+                    }
+                    )
     fig.update_xaxes(side="top")
-    fig.add_vline(x=360, line_dash="dash", line_color="green")
+    fig.add_vline(x=0, line_dash="dash", line_color="green")
     return fig
 
 
@@ -35,7 +43,7 @@ def average_line(time_locked, mouse, ):
                       'index': 'Time in Frames',
                       'value': 'zdFF'
                   })
-    fig.add_vline(x=360, line_dash="dash", line_color="green")
+    fig.add_vline(x=0, line_dash="dash", line_color="green")
     return fig
 
 

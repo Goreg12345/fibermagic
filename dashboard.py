@@ -12,22 +12,24 @@ import pandas as pd
 from NeurophotometricsIO import reference, synchronize, lock_time_to_event, create_giant_logs, create_giant_dataframe
 from functions.plot import heatmap, average_line, plot_single, raster_plot
 
-DATA_DIR = Path(r'C:\Users\Georg\OneDrive - UvA\0 Research\data_001')
+DATA_DIR = Path(r'C:\Users\Georg\OneDrive - UvA\0 Research\data')
 DATA_FILE = 'FED3.csv'
 FREQUENCY = 25
+LOAD_FROM_DISC = True  # loading already saved tables from disc improves performance for e.g. debugging
 
 overview = pd.read_csv(DATA_DIR / 'meta' / 'overview.csv', delimiter=';')
-#logs = create_giant_logs(DATA_DIR)
-#df = create_giant_dataframe(DATA_DIR, DATA_FILE)
-#logs.to_csv('logs.csv')
-#df.to_csv('data.csv')
-logs = pd.read_csv('logs.csv').set_index(['Analysis', 'Mouse'])
-df = pd.read_csv('data.csv').set_index(['Analysis', 'Mouse'])
+if not LOAD_FROM_DISC:
+    logs = create_giant_logs(DATA_DIR)
+    df = create_giant_dataframe(DATA_DIR, DATA_FILE)
+    logs.to_csv('logs.csv')
+    df.to_csv('data.csv')
+else:
+    logs = pd.read_csv('logs.csv').set_index(['Analysis', 'Mouse'])
+    df = pd.read_csv('data.csv').set_index(['Analysis', 'Mouse', 'FrameCounter'])
 
 
 @cache
 def get_data(data_file, analysis, region, wave_len, lever='FD'):
-    t1 = time.time()
     df = pd.read_csv(DATA_DIR / analysis / DATA_FILE)
     sync_signals = pd.read_csv(DATA_DIR / analysis / 'input1.csv')
     timestamps = pd.read_csv(DATA_DIR / analysis / 'time.csv')
@@ -36,7 +38,7 @@ def get_data(data_file, analysis, region, wave_len, lever='FD'):
     df = reference(df, region, wave_len)
 
     logs = synchronize(logs, sync_signals, timestamps)
-    time_locked = lock_time_to_event(df, logs, lever, 15 * FREQUENCY)
+    time_locked = lock_time_to_event(df.zdFF, logs, lever, 15, FREQUENCY)
 
     fig = heatmap(time_locked, 'small mouse')
     fig2 = average_line(time_locked, 'small mouse')
@@ -57,6 +59,8 @@ def list_trials_and_mice():
                 )
     return analyses
 #########################################################
+
+
 app = dash.Dash(__name__)
 
 app.layout = html.Div(children=[
@@ -76,7 +80,7 @@ app.layout = html.Div(children=[
                                        id='marker',
                                        options=[{'label': 'Gcamp', 'value': '470'},
                                                 {'label': 'Rdlight', 'value': '560'}],
-                                       value=['Rdlight'],
+                                       #value=['Rdlight'],
                                        multi=False
                                    ),
                                    ]),
@@ -113,9 +117,43 @@ app.layout = html.Div(children=[
                 id='logs-raster',
                 figure=px.scatter(pd.DataFrame())
             )
+        ]),
+        dcc.Tab(label='Comparison', id='comparison', children=[
+            dcc.Dropdown(
+                id='mouse-dropdown',
+                options=[{'label': mouse, 'value': mouse} for mouse in list(overview.Mouse)],
+                #value=['MTL', 'SF'],
+                multi=False
+            ),
+            html.Div(
+                id='comparison-plot',
+                children=[]
+            )
         ])
     ])
 ])
+
+
+@app.callback(
+    Output('comparison-plot', 'children'),
+    Input('mouse-dropdown', 'value')
+)
+def update_comparison(mouse):
+    if not mouse:
+        return []
+    event = 'FD'
+    children = []
+    for paradigm in ['PR2', 'PR5', 'PR8']:
+        for sensor in ['560', '470']:
+            sdf = df.loc[(paradigm, mouse), sensor]
+            locked = lock_time_to_event(sdf, logs.loc[(paradigm, mouse)].reset_index(), event, 15, frequency=FREQUENCY)
+            children.append(
+                dcc.Graph(
+                    id='{p}-{s}'.format(p=paradigm, s=sensor),
+                    figure=heatmap(locked, mouse, event)
+                )
+            )
+    return children
 
 
 @app.callback(

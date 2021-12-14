@@ -5,8 +5,6 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 
-from functions.plot import plot_seperate, plot_single, heatmap, raster_plot
-
 
 def extract_leds(df):
     df['wave_len'] = np.nan
@@ -16,24 +14,28 @@ def extract_leds(df):
     return df
 
 
-def lock_time_to_event(df, logs, event, window):
+def lock_time_to_event(df, logs, event, window, frequency):
     """
     produces a time-frequency plot with each event in one column
-    :param df: zdFF df with zdFF column
+    :param df: pd Series
     :param logs: logs df with columns lever and Frame_Bonsai
     :param event: str, name of event, e.g. FD to build the trials of
-    :param window: number of FP frames to cut left and right off
+    :param window: number of SECONDS to cut left and right off
     :return: event-related df with each trial os a column
     """
     time_locked = pd.DataFrame()
     i = 1
+    dist = window * frequency
     for index, row in logs[logs['lever'] == event].iterrows():
         t = row.Frame_Bonsai
-        if df.index[0] > t - window or df.index[-1] < t + window:
+        if df.index[0] > t - dist or df.index[-1] < t + dist:
             continue  # reject events if data don't cover the full window
-        time_locked['Trial {n}'.format(n=i)] = df.loc[np.arange(t - window, t + window)].reset_index().zdFF
+        time_locked['Trial {n}'.format(n=i)] = \
+            df.loc[np.arange(t - dist, t + dist)].reset_index(drop=True)
         i += 1
     time_locked['average'] = time_locked.mean(axis=1)
+
+    time_locked.index = (time_locked.index - dist) / frequency
     return time_locked
 
 
@@ -136,7 +138,7 @@ def create_giant_dataframe(project_path, data_file):
                 sdf[wave_len] = reference(df, overview.loc[mouse, wave_len], int(wave_len)).zdFF
             sdf['Mouse'] = mouse
             sdf['Analysis'] = analysis
-            sdf = sdf.set_index(['Analysis', 'Mouse'])
+            sdf = sdf.set_index(['Analysis', 'Mouse', sdf.index])
             giant = giant.append(sdf)
     return giant
 
@@ -145,25 +147,3 @@ if __name__ == '__main__':
     DATA_DIR = Path(r'C:\Users\Georg\OneDrive - UvA\0 Research\data')
     logs = create_giant_logs(DATA_DIR)
     df = create_giant_dataframe(DATA_DIR, 'FED3.csv')
-    ANALYSIS = 'PR2'
-    DATA_FILE = 'FED3.csv'
-    LOG_FILE = 'FRcDATxAdoraPR2Recording2B8388-1.log'
-    MOUSE_NAME = 'B8388'
-    LED = '12'
-    FREQUENCY = 25
-
-    df = pd.read_csv(DATA_DIR / ANALYSIS / DATA_FILE)
-    df = reference(df, 'Region12R', 560)
-    plot_seperate(df[470], df[410])
-    plot_single(df.zdFF)
-
-    sync_signals = pd.read_csv(DATA_DIR / ANALYSIS / 'input1.csv')
-    timestamps = pd.read_csv(DATA_DIR / ANALYSIS / 'time.csv')
-    logs = pd.read_csv(DATA_DIR / ANALYSIS / LOG_FILE)
-    logs = synchronize(logs, sync_signals, timestamps)
-
-    time_locked = lock_time_to_event(df, logs, 'FD', 15 * FREQUENCY)
-    heatmap(time_locked, MOUSE_NAME)
-
-    fig = raster_plot(logs, ['LL', 'FD'])
-    fig.show()
