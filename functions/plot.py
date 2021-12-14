@@ -1,5 +1,6 @@
 from matplotlib import pyplot as plt
 import plotly.express as px
+import pandas as pd
 
 
 def plot_seperate(signal, reference):
@@ -35,4 +36,12 @@ def average_line(time_locked, mouse, ):
                       'value': 'zdFF'
                   })
     fig.add_vline(x=360, line_dash="dash", line_color="green")
+    return fig
+
+
+def raster_plot(logs, events=['LL', 'FD']):
+    logs = logs[logs.lever.str.contains('|'.join(events))]
+    logs['datetime'] = pd.to_datetime(logs['timestamp'] / 10, unit='s')
+    fig = px.scatter(logs, x=logs.datetime, y=logs.lever)
+    fig.data[0].marker.symbol = 'square'
     return fig

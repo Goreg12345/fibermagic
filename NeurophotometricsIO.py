@@ -1,9 +1,11 @@
+import os
+
 from functions.martianova import *
 from pathlib import Path
 import pandas as pd
 import numpy as np
 
-from functions.plot import plot_seperate, plot_single, heatmap
+from functions.plot import plot_seperate, plot_single, heatmap, raster_plot
 
 
 def extract_leds(df):
@@ -27,6 +29,8 @@ def lock_time_to_event(df, logs, event, window):
     i = 1
     for index, row in logs[logs['lever'] == event].iterrows():
         t = row.Frame_Bonsai
+        if df.index[0] > t - window or df.index[-1] < t + window:
+            continue  # reject events if data don't cover the full window
         time_locked['Trial {n}'.format(n=i)] = df.loc[np.arange(t - window, t + window)].reset_index().zdFF
         i += 1
     time_locked['average'] = time_locked.mean(axis=1)
@@ -70,17 +74,86 @@ def synchronize(logs, sync_signals, timestamps):
     return logs
 
 
+def create_giant_logs(project_path):
+    """
+    Merges all log files from a project into one
+    :param project_path: project root path
+    :return: Dataframe with logs in the following form:
+                        lever  timestamp    Frame_Bonsai
+    Trial 1 mouse A     LL         0.5      242
+                        SI        0.56      278
+                        FD        0.57      360
+            mouse B     ...         ...
+    Trial 2 mouse A     ...
+            mouse B
+    ...     ...
+    """
+    overview = pd.read_csv(project_path / 'meta' / 'overview.csv', delimiter=';').set_index("Mouse")
+    giant = pd.DataFrame()
+
+    for analysis in os.listdir(project_path):
+        if analysis == 'meta': continue
+        sync_signals = pd.read_csv(project_path / analysis / 'input1.csv')
+        timestamps = pd.read_csv(project_path / analysis / 'time.csv')
+
+        # find log file for each mouse
+        for mouse in overview.index:
+            for file in os.listdir(project_path / analysis):
+                if '.log' in file and mouse in file:
+                    logs = pd.read_csv(project_path / analysis / file)
+                    logs = synchronize(logs, sync_signals, timestamps)
+                    logs = logs[['lever', 'timestamp', 'Frame_Bonsai']]
+                    logs['Mouse'] = mouse
+                    logs['Analysis'] = analysis
+                    logs = logs.set_index(['Analysis', 'Mouse'])
+                    giant = giant.append(logs)
+    return giant
+
+
+def create_giant_dataframe(project_path, data_file):
+    """
+    Runs standard zdFF processing pipeline on every trial, mouse and sensor and puts data together in a single data frame
+    :param project_path: root path of the project
+    :param data_file: name of each file containing raw data
+    :return: dataframe with the following multicolumn/index structure
+                        sensor 470  sensor 560  ...
+    Trial 1 mouse A     0.1         0.5
+                        0.25        0.56
+                        0.13        0.57
+            mouse B     ...         ...
+    Trial 2 mouse A     ...
+            mouse B
+    ...     ...
+    """
+    overview = pd.read_csv(project_path / 'meta' / 'overview.csv', delimiter=';').set_index("Mouse")
+    giant = pd.DataFrame()
+    for analysis in os.listdir(project_path):
+        if analysis == 'meta': continue
+        df = pd.read_csv(project_path / analysis / data_file)
+        for mouse in overview.index:
+            sdf = pd.DataFrame()
+            for wave_len in overview.columns:
+                sdf[wave_len] = reference(df, overview.loc[mouse, wave_len], int(wave_len)).zdFF
+            sdf['Mouse'] = mouse
+            sdf['Analysis'] = analysis
+            sdf = sdf.set_index(['Analysis', 'Mouse'])
+            giant = giant.append(sdf)
+    return giant
+
+
 if __name__ == '__main__':
     DATA_DIR = Path(r'C:\Users\Georg\OneDrive - UvA\0 Research\data')
-    ANALYSIS = 'PR8'
+    logs = create_giant_logs(DATA_DIR)
+    df = create_giant_dataframe(DATA_DIR, 'FED3.csv')
+    ANALYSIS = 'PR2'
     DATA_FILE = 'FED3.csv'
-    LOG_FILE = 'FRfD2AdoraCrepilotPR8B8624-1.log'
-    MOUSE_NAME = 'B8624'
-    LED = '7'
+    LOG_FILE = 'FRcDATxAdoraPR2Recording2B8388-1.log'
+    MOUSE_NAME = 'B8388'
+    LED = '12'
     FREQUENCY = 25
 
     df = pd.read_csv(DATA_DIR / ANALYSIS / DATA_FILE)
-    df = reference(df, 'Region6R', 560)
+    df = reference(df, 'Region12R', 560)
     plot_seperate(df[470], df[410])
     plot_single(df.zdFF)
 
@@ -90,5 +163,7 @@ if __name__ == '__main__':
     logs = synchronize(logs, sync_signals, timestamps)
 
     time_locked = lock_time_to_event(df, logs, 'FD', 15 * FREQUENCY)
-    heatmap(time_locked)
+    heatmap(time_locked, MOUSE_NAME)
 
+    fig = raster_plot(logs, ['LL', 'FD'])
+    fig.show()

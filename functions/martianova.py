@@ -1,3 +1,7 @@
+import numpy as np
+from sklearn.linear_model import Lasso
+from scipy.sparse import csc_matrix, eye, diags
+from scipy.sparse.linalg import spsolve
 """
 get_zdFF.py calculates standardized dF/F signal based on calcium-idependent
 and calcium-dependent signals commonly recorded using fiber photometry calcium imaging
@@ -14,7 +18,7 @@ Reference:
 
 
 def get_zdFF(
-    df, wave_len, smooth_win=10, remove=200, lambd=5e4, porder=1, itermax=50
+    df, wave_len, smooth_win=4, remove=200, lambd=5e4, porder=1, itermax=50
 ):
     """
     Calculates z-score dF/F signal based on fiber photometry calcium-idependent
@@ -34,9 +38,6 @@ def get_zdFF(
     Output
         zdFF - z-score dF/F, 1D numpy array
     """
-
-    import numpy as np
-    from sklearn.linear_model import Lasso
 
     # remove beginning and end of recording
     df = df.iloc[remove:-remove]
@@ -92,8 +93,6 @@ def smooth_signal(x, window_len=10, window="flat"):
     output:
         the smoothed signal
     """
-
-    import numpy as np
 
     if x.ndim != 1:
         raise (ValueError, "smooth only accepts 1 dimension arrays.")
@@ -161,10 +160,6 @@ GNU Lesser General Public License for more details.
 You should have received a copy of the GNU Lesser General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>
 """
-
-import numpy as np
-from scipy.sparse import csc_matrix, eye, diags
-from scipy.sparse.linalg import spsolve
 
 
 def WhittakerSmooth(x, w, lambda_, differences=1):
