@@ -28,23 +28,51 @@ else:
     df = pd.read_csv('data.csv').set_index(['Analysis', 'Mouse', 'FrameCounter'])
 
 
+def update_comparison():
+    event = 'FD'
+    paradigms = ['PR2', 'PR5', 'PR8']
+    sensors = ['560', '470']
+    table = html.Table(
+        style={'width': '100%'},
+        children=[
+            html.Tr([html.Th(label, style={'width': '16%'}) for label in ['PR2, 560', 'PR2, 470', 'PR5, 560', 'PR5, 470', 'PR8, 560', 'PR8, 470']])
+        ]
+    )
+    for mouse in overview.Mouse:
+        row_table = html.Tr(children=[])
+        for paradigm in paradigms:
+            for sensor in sensors:
+                sdf = df.loc[(paradigm, mouse), sensor]
+                locked = lock_time_to_event(sdf, logs.loc[(paradigm, mouse)].reset_index(), event, 8,
+                                            frequency=FREQUENCY)
+                row_table.children.append(html.Th(
+                    dcc.Graph(
+                        id='{m}-{p}-{s}'.format(m=mouse, p=paradigm, s=sensor),
+                        figure=heatmap(locked, mouse, paradigm, sensor, event),
+                        style={'display': 'inline-block', 'width': '100%'}
+                    )
+                ))
+        table.children.append(row_table)
+    return table
+
+
 @cache
 def get_data(data_file, analysis, region, wave_len, lever='FD'):
-    df = pd.read_csv(DATA_DIR / analysis / DATA_FILE)
+    sdf = pd.read_csv(DATA_DIR / analysis / DATA_FILE)
     sync_signals = pd.read_csv(DATA_DIR / analysis / 'input1.csv')
     timestamps = pd.read_csv(DATA_DIR / analysis / 'time.csv')
     logs = pd.read_csv(DATA_DIR / data_file)
 
-    df = reference(df, region, wave_len)
+    sdf = reference(sdf, region, wave_len)
 
     logs = synchronize(logs, sync_signals, timestamps)
-    time_locked = lock_time_to_event(df.zdFF, logs, lever, 15, FREQUENCY)
+    time_locked = lock_time_to_event(sdf.zdFF, logs, lever, 15, FREQUENCY)
 
     fig = heatmap(time_locked, 'small mouse')
     fig2 = average_line(time_locked, 'small mouse')
-    fig3 = plot_single(df[wave_len], 'Raw Data', 'Time in Frames', 'Absolute Value')
-    fig4 = plot_single(df[410], 'Reference Data', 'Time in Frames', 'Absolute Value')
-    fig5 = plot_single(df['zdFF'], 'Fitted Data', 'Time in Frames', 'zdFF')
+    fig3 = plot_single(sdf[wave_len], 'Raw Data', 'Time in Frames', 'Absolute Value')
+    fig4 = plot_single(sdf[410], 'Reference Data', 'Time in Frames', 'Absolute Value')
+    fig5 = plot_single(sdf['zdFF'], 'Fitted Data', 'Time in Frames', 'zdFF')
     return fig, fig2, fig3, fig4, fig5
 
 
@@ -119,41 +147,41 @@ app.layout = html.Div(children=[
             )
         ]),
         dcc.Tab(label='Comparison', id='comparison', children=[
-            dcc.Dropdown(
-                id='mouse-dropdown',
-                options=[{'label': mouse, 'value': mouse} for mouse in list(overview.Mouse)],
-                #value=['MTL', 'SF'],
-                multi=False
-            ),
+            #dcc.Dropdown(
+            #    id='mouse-dropdown',
+            #    options=[{'label': mouse, 'value': mouse} for mouse in list(overview.Mouse)],
+            #    #value=['MTL', 'SF'],
+            #    multi=False
+            #),
             html.Div(
                 id='comparison-plot',
-                children=[]
+                children=update_comparison()
             )
         ])
     ])
 ])
 
 
-@app.callback(
-    Output('comparison-plot', 'children'),
-    Input('mouse-dropdown', 'value')
-)
-def update_comparison(mouse):
-    if not mouse:
-        return []
-    event = 'FD'
-    children = []
-    for paradigm in ['PR2', 'PR5', 'PR8']:
-        for sensor in ['560', '470']:
-            sdf = df.loc[(paradigm, mouse), sensor]
-            locked = lock_time_to_event(sdf, logs.loc[(paradigm, mouse)].reset_index(), event, 15, frequency=FREQUENCY)
-            children.append(
-                dcc.Graph(
-                    id='{p}-{s}'.format(p=paradigm, s=sensor),
-                    figure=heatmap(locked, mouse, event)
-                )
-            )
-    return children
+#  @app.callback(
+#      Output('comparison-plot', 'children'),
+#      Input('mouse-dropdown', 'value')
+#  )
+#  def update_comparison(mouse):
+#      if not mouse:
+#          return []
+#      event = 'FD'
+#      children = []
+#      for paradigm in ['PR2', 'PR5', 'PR8']:
+#          for sensor in ['560', '470']:
+#              sdf = df.loc[(paradigm, mouse), sensor]
+#              locked = lock_time_to_event(sdf, logs.loc[(paradigm, mouse)].reset_index(), event, 15, frequency=FREQUENCY)
+#              children.append(
+#                  dcc.Graph(
+#                      id='{p}-{s}'.format(p=paradigm, s=sensor),
+#                      figure=heatmap(locked, mouse, event)
+#                  )
+#              )
+#      return children
 
 
 @app.callback(
@@ -182,7 +210,8 @@ def update_graph(analysis, marker):
         return [px.line(pd.DataFrame())] * 5
     paradigm = analysis.split('\\')[0]
     mouse = analysis.split('-1.log')[0][-5:]
-    wave_len = 560 if marker=='Rdlight' else 470
+    wave_len = 560 if marker=='560' else 470
+    print(wave_len, overview[overview.Mouse == mouse][marker])
     return get_data(analysis, paradigm, overview[overview.Mouse == mouse][marker].iloc[0], wave_len)
 
 

@@ -18,7 +18,7 @@ Reference:
 
 
 def get_zdFF(
-    df, wave_len, smooth_win=4, remove=200, lambd=5e4, porder=1, itermax=50
+    df, wave_len, smooth_win=10, remove=200, lambd=5e4, porder=1, itermax=50
 ):
     """
     Calculates z-score dF/F signal based on fiber photometry calcium-idependent

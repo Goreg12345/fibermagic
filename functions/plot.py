@@ -24,9 +24,10 @@ def plot_single(data, title='', x_lab='', y_lab=''):
     return fig
 
 
-def heatmap(time_locked, mouse, event='FD'):
+def heatmap(time_locked, mouse, paradigm='unkown', sensor='unknown', event='FD'):
     fig = px.imshow(time_locked.T,
-                    title='Evoked Responses for {mouse} for lever {event}'.format(mouse=mouse, event=event),
+                    title='Mouse: {mouse}, Lever: {event}, Paradigm: {paradigm}, Sensor: {sensor}'
+                    .format(mouse=mouse, event=event, paradigm=paradigm, sensor=sensor),
                     labels={
                         'index': 'asdf',
                         'value': 'asdf'
