@@ -9,13 +9,13 @@ from dash import html
 import plotly.express as px
 import pandas as pd
 
-from NeurophotometricsIO import reference, synchronize, lock_time_to_event, create_giant_logs, create_giant_dataframe
+from NeurophotometricsIO import reference, synchronize, perievents, create_giant_logs, create_giant_dataframe
 from functions.plot import heatmap, average_line, plot_single, raster_plot
 
-DATA_DIR = Path(r'C:\Users\Georg\OneDrive - UvA\0 Research\data')
+DATA_DIR = Path(r'C:\Users\Georg\OneDrive - UvA\0 Research\data_002')
 DATA_FILE = 'FED3.csv'
 FREQUENCY = 25
-LOAD_FROM_DISC = True  # loading already saved tables from disc improves performance for e.g. debugging
+LOAD_FROM_DISC = False  # loading already saved tables from disc improves performance for e.g. debugging
 
 overview = pd.read_csv(DATA_DIR / 'meta' / 'overview.csv', delimiter=';')
 if not LOAD_FROM_DISC:
@@ -29,6 +29,7 @@ else:
 
 
 def update_comparison():
+    return html.Table()
     event = 'FD'
     paradigms = ['PR2', 'PR5', 'PR8']
     sensors = ['560', '470']
@@ -43,8 +44,8 @@ def update_comparison():
         for paradigm in paradigms:
             for sensor in sensors:
                 sdf = df.loc[(paradigm, mouse), sensor]
-                locked = lock_time_to_event(sdf, logs.loc[(paradigm, mouse)].reset_index(), event, 8,
-                                            frequency=FREQUENCY)
+                locked = perievents(sdf, logs.loc[(paradigm, mouse)].reset_index(), event, 8,
+                                    frequency=FREQUENCY)
                 row_table.children.append(html.Th(
                     dcc.Graph(
                         id='{m}-{p}-{s}'.format(m=mouse, p=paradigm, s=sensor),
@@ -66,7 +67,7 @@ def get_data(data_file, analysis, region, wave_len, lever='FD'):
     sdf = reference(sdf, region, wave_len)
 
     logs = synchronize(logs, sync_signals, timestamps)
-    time_locked = lock_time_to_event(sdf.zdFF, logs, lever, 15, FREQUENCY)
+    time_locked = perievents(sdf.zdFF, logs, lever, 15, FREQUENCY)
 
     fig = heatmap(time_locked, 'small mouse')
     fig2 = average_line(time_locked, 'small mouse')

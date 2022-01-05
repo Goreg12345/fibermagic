@@ -3,7 +3,7 @@ import plotly.express as px
 import pandas as pd
 from plotly.subplots import make_subplots
 
-from NeurophotometricsIO import lock_time_to_event
+from NeurophotometricsIO import perievents
 
 
 def plot_seperate(signal, reference):

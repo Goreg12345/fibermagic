@@ -14,7 +14,7 @@ def extract_leds(df):
     return df
 
 
-def lock_time_to_event(df, logs, event, window, frequency):
+def perievents(df, logs, event, window, frequency):
     """
     produces a time-frequency plot with each event in one column
     :param df: pd Series
@@ -23,6 +23,44 @@ def lock_time_to_event(df, logs, event, window, frequency):
     :param window: number of SECONDS to cut left and right off
     :return: event-related df with each trial os a column
     """
+    # TODO: make a good documentation for this shit
+    #pd.concat((df, logs.set_index('FrameCounter', append=True)), axis=1)
+    levers = logs.lever.unique()
+    channels = df.columns
+    logs['FrameCounter'] = logs['Frame_Bonsai']
+    logs = logs.set_index('FrameCounter', append=True)
+    logs = logs.reset_index().pivot(index=logs.index.dtypes.index, columns='lever', values='Frame_Bonsai')
+    df = pd.concat((df, logs), axis=1)
+    df = df.fillna(method='ffill', limit=window*frequency)
+    df = df.fillna(method='bfill', limit=window*frequency)
+
+    #df = df.reset_index().pivot(index=('Analysis', 'Mouse', 'FD'), columns='FrameCounter', values='560').dropna(how='all')
+    #df = df[df['FD'].notnull()].reset_index()
+    df = df[df[levers].notnull().any(1)]
+    df = df.reset_index().melt(id_vars=['Analysis', 'Mouse', 'FrameCounter', *levers], value_vars=channels).pivot(index=('Analysis', 'Mouse', 'FD'), columns=('variable', 'FrameCounter'), values='value').reset_index(level=2)
+        #.pivot(index=('Analysis', 'Mouse', 'FD'), columns='FrameCounter', values='560')
+    #df = df.reset_index(level=2)
+    #df = df[df['FD']]
+
+
+
+
+
+
+    v = df.values
+    # TODO: replace with numpy
+    a = [[n]*v.shape[1] for n in range(v.shape[0])]
+    b = pd.isnull(v).argsort(axis=1, kind = 'mergesort')
+    df.values[:] = v[a, b]
+    df = df.dropna(axis=1, how='all').dropna(axis=0, how='any')
+    df = df.rename(columns = {a: b for (a, b) in zip(
+        df.columns.values, np.arange(-window, window + 1e-6, 1/frequency))})
+
+    return df
+
+    # TODO: calculate average
+    # TODO: make it general for every lever and every channel
+    # TODO: delete code below but make sure that code above works with everything
     time_locked = pd.DataFrame()
     i = 1
     dist = window * frequency
@@ -142,8 +180,15 @@ def create_giant_dataframe(project_path, data_file):
             giant = giant.append(sdf)
     return giant
 
+#def create_giant_peri_event(df, logs):
 
 if __name__ == '__main__':
     DATA_DIR = Path(r'C:\Users\Georg\OneDrive - UvA\0 Research\data')
+    df = pd.read_csv('data.csv')
+    df = df.set_index(['Analysis', 'Mouse', 'FrameCounter'])
+    logs = pd.read_csv('logs.csv')
+    logs = logs.set_index(['Analysis', 'Mouse'])
+    perievent = perievents(df, logs, 'FD', 10, 25)
     logs = create_giant_logs(DATA_DIR)
     df = create_giant_dataframe(DATA_DIR, 'FED3.csv')
+    df
