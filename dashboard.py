@@ -9,13 +9,14 @@ from dash import html
 import plotly.express as px
 import pandas as pd
 
-from NeurophotometricsIO import reference, synchronize, perievents, create_giant_logs, create_giant_dataframe
+from NeurophotometricsIO import reference, synchronize, perievents, create_giant_logs, create_giant_dataframe, \
+    single_perievent
 from functions.plot import heatmap, average_line, plot_single, raster_plot
 
-DATA_DIR = Path(r'C:\Users\Georg\OneDrive - UvA\0 Research\data_002')
+DATA_DIR = Path(r'C:\Users\Georg\OneDrive - UvA\0 Research\data\data_002')
 DATA_FILE = 'FED3.csv'
 FREQUENCY = 25
-LOAD_FROM_DISC = False  # loading already saved tables from disc improves performance for e.g. debugging
+LOAD_FROM_DISC = True  # loading already saved tables from disc improves performance for e.g. debugging
 
 overview = pd.read_csv(DATA_DIR / 'meta' / 'overview.csv', delimiter=';')
 if not LOAD_FROM_DISC:
@@ -67,8 +68,7 @@ def get_data(data_file, analysis, region, wave_len, lever='FD'):
     sdf = reference(sdf, region, wave_len)
 
     logs = synchronize(logs, sync_signals, timestamps)
-    time_locked = perievents(sdf.zdFF, logs, lever, 15, FREQUENCY)
-
+    time_locked = single_perievent(sdf.zdFF, logs, 'FD', 15, FREQUENCY)
     fig = heatmap(time_locked, 'small mouse')
     fig2 = average_line(time_locked, 'small mouse')
     fig3 = plot_single(sdf[wave_len], 'Raw Data', 'Time in Frames', 'Absolute Value')

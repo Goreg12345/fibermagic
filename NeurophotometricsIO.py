@@ -14,7 +14,7 @@ def extract_leds(df):
     return df
 
 
-def perievents(df, logs, event, window, frequency):
+def single_perievent(df, logs, event, window, frequency):
     """
     produces a time-frequency plot with each event in one column
     :param df: pd Series
@@ -23,44 +23,6 @@ def perievents(df, logs, event, window, frequency):
     :param window: number of SECONDS to cut left and right off
     :return: event-related df with each trial os a column
     """
-    # TODO: make a good documentation for this shit
-    #pd.concat((df, logs.set_index('FrameCounter', append=True)), axis=1)
-    levers = logs.lever.unique()
-    channels = df.columns
-    logs['FrameCounter'] = logs['Frame_Bonsai']
-    logs = logs.set_index('FrameCounter', append=True)
-    logs = logs.reset_index().pivot(index=logs.index.dtypes.index, columns='lever', values='Frame_Bonsai')
-    df = pd.concat((df, logs), axis=1)
-    df = df.fillna(method='ffill', limit=window*frequency)
-    df = df.fillna(method='bfill', limit=window*frequency)
-
-    #df = df.reset_index().pivot(index=('Analysis', 'Mouse', 'FD'), columns='FrameCounter', values='560').dropna(how='all')
-    #df = df[df['FD'].notnull()].reset_index()
-    df = df[df[levers].notnull().any(1)]
-    df = df.reset_index().melt(id_vars=['Analysis', 'Mouse', 'FrameCounter', *levers], value_vars=channels).pivot(index=('Analysis', 'Mouse', 'FD'), columns=('variable', 'FrameCounter'), values='value').reset_index(level=2)
-        #.pivot(index=('Analysis', 'Mouse', 'FD'), columns='FrameCounter', values='560')
-    #df = df.reset_index(level=2)
-    #df = df[df['FD']]
-
-
-
-
-
-
-    v = df.values
-    # TODO: replace with numpy
-    a = [[n]*v.shape[1] for n in range(v.shape[0])]
-    b = pd.isnull(v).argsort(axis=1, kind = 'mergesort')
-    df.values[:] = v[a, b]
-    df = df.dropna(axis=1, how='all').dropna(axis=0, how='any')
-    df = df.rename(columns = {a: b for (a, b) in zip(
-        df.columns.values, np.arange(-window, window + 1e-6, 1/frequency))})
-
-    return df
-
-    # TODO: calculate average
-    # TODO: make it general for every lever and every channel
-    # TODO: delete code below but make sure that code above works with everything
     time_locked = pd.DataFrame()
     i = 1
     dist = window * frequency
@@ -75,6 +37,53 @@ def perievents(df, logs, event, window, frequency):
 
     time_locked.index = (time_locked.index - dist) / frequency
     return time_locked
+
+
+def perievents(df, logs, window, frequency):
+    """
+    produces a time-frequency plot with each event in one column
+    :param df: pd Series
+    :param logs: logs df with columns lever and Frame_Bonsai
+    :param event: str, name of event, e.g. FD to build the trials of
+    :param window: number of SECONDS to cut left and right off
+    :return: event-related df with each trial os a column
+    """
+    # TODO: make a good documentation for this shit
+    channels = df.columns
+    logs['FrameCounter'] = logs['Frame_Bonsai']
+
+    # stack all idx but not the FrameCounter to be able to select and slice
+    logs['channel'] = [list(channels)] * len(logs)
+    logs = logs.explode('channel').set_index('FrameCounter', append=True)
+    logs = logs.loc[df.index.intersection(logs.index)]
+    logs = logs.reset_index(level=-1).set_index(['channel', 'FrameCounter'], append=True)
+
+    df_stacked = df.stack().unstack(level=(*df.index.names[:-1], -1)).sort_index()
+
+    def f(row):
+        idx = row.name[:-1]
+        frame = row.name[-1]
+        s_df = df_stacked[idx].dropna().sort_index()
+        s_df = s_df.loc[frame - window*frequency : frame + window*frequency]
+        return s_df
+
+    def shift_left(df):
+        v = df.values
+        # TODO: replace with numpy
+        a = [[n]*v.shape[1] for n in range(v.shape[0])]
+        b = pd.isnull(v).argsort(axis=1, kind = 'mergesort')
+        df.values[:] = v[a, b]
+        df = df.dropna(axis=1, how='all').dropna(axis=0, how='any')
+        df = df.rename(columns = {a: b for (a, b) in zip(
+            df.columns.values, np.arange(-window, window + 1e-6, 1/frequency))})
+        df = df.stack().unstack(level=('channel', -1))
+        return df
+
+    peri = logs.apply(f, axis=1)
+    peri['lever'] = logs.lever
+    peri = peri.set_index('lever', append=True)
+    peri = shift_left(peri)
+    return peri
 
 
 def reference(df, region, wave_len, lambd=1e4, smooth_win=10):
@@ -185,10 +194,13 @@ def create_giant_dataframe(project_path, data_file):
 if __name__ == '__main__':
     DATA_DIR = Path(r'C:\Users\Georg\OneDrive - UvA\0 Research\data')
     df = pd.read_csv('data.csv')
+    #df = df.head(100000)
     df = df.set_index(['Analysis', 'Mouse', 'FrameCounter'])
     logs = pd.read_csv('logs.csv')
     logs = logs.set_index(['Analysis', 'Mouse'])
+    logs = logs.loc[('condition', 'B9724')]
     perievent = perievents(df, logs, 'FD', 10, 25)
+    perievent.to_csv('perievents.csv')
     logs = create_giant_logs(DATA_DIR)
     df = create_giant_dataframe(DATA_DIR, 'FED3.csv')
     df
