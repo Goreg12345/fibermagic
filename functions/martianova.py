@@ -40,7 +40,8 @@ def get_zdFF(
     """
 
     # remove beginning and end of recording
-    df = df.iloc[remove:-remove]
+    df = df.drop(np.arange(1, remove))\
+        .drop(np.arange(max(df.index) - remove, max(df.index)))
 
     # Smooth signal
     reference = smooth_signal(df[410], smooth_win)

@@ -5,85 +5,21 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 
+from functions.perievents import perievents, perievents_to_columns, enumerate_trials
+
 
 def extract_leds(df):
+    """
+    inserts new column 'wave_len' with wave length of LED that was on during the measurement
+    based on the flags in the raw data file
+    :param df: raw data
+    :return: df with 'wave_len' as additional column
+    """
     df['wave_len'] = np.nan
-    df.loc[(df.Flags & 1).astype(bool), 'wave_len'] = 410
-    df.loc[(df.Flags & 2).astype(bool), 'wave_len'] = 470
-    df.loc[(df.Flags & 4).astype(bool), 'wave_len'] = 560
+    df.loc[(df.LedState & 1).astype(bool), 'wave_len'] = 410
+    df.loc[(df.LedState & 2).astype(bool), 'wave_len'] = 470
+    df.loc[(df.LedState & 4).astype(bool), 'wave_len'] = 560
     return df
-
-
-def single_perievent(df, logs, event, window, frequency):
-    """
-    produces a time-frequency plot with each event in one column
-    :param df: pd Series
-    :param logs: logs df with columns lever and Frame_Bonsai
-    :param event: str, name of event, e.g. FD to build the trials of
-    :param window: number of SECONDS to cut left and right off
-    :return: event-related df with each trial os a column
-    """
-    time_locked = pd.DataFrame()
-    i = 1
-    dist = window * frequency
-    for index, row in logs[logs['lever'] == event].iterrows():
-        t = row.Frame_Bonsai
-        if df.index[0] > t - dist or df.index[-1] < t + dist:
-            continue  # reject events if data don't cover the full window
-        time_locked['Trial {n}'.format(n=i)] = \
-            df.loc[np.arange(t - dist, t + dist)].reset_index(drop=True)
-        i += 1
-    time_locked['average'] = time_locked.mean(axis=1)
-
-    time_locked.index = (time_locked.index - dist) / frequency
-    return time_locked
-
-
-def perievents(df, logs, window, frequency):
-    """
-    produces a time-frequency plot with each event in one column
-    :param df: pd Series
-    :param logs: logs df with columns lever and Frame_Bonsai
-    :param event: str, name of event, e.g. FD to build the trials of
-    :param window: number of SECONDS to cut left and right off
-    :return: event-related df with each trial os a column
-    """
-    # TODO: make a good documentation for this shit
-    channels = df.columns
-    logs['FrameCounter'] = logs['Frame_Bonsai']
-
-    # stack all idx but not the FrameCounter to be able to select and slice
-    logs['channel'] = [list(channels)] * len(logs)
-    logs = logs.explode('channel').set_index('FrameCounter', append=True)
-    logs = logs.loc[df.index.intersection(logs.index)]
-    logs = logs.reset_index(level=-1).set_index(['channel', 'FrameCounter'], append=True)
-
-    df_stacked = df.stack().unstack(level=(*df.index.names[:-1], -1)).sort_index()
-
-    def f(row):
-        idx = row.name[:-1]
-        frame = row.name[-1]
-        s_df = df_stacked[idx].dropna().sort_index()
-        s_df = s_df.loc[frame - window*frequency : frame + window*frequency]
-        return s_df
-
-    def shift_left(df):
-        v = df.values
-        # TODO: replace with numpy
-        a = [[n]*v.shape[1] for n in range(v.shape[0])]
-        b = pd.isnull(v).argsort(axis=1, kind = 'mergesort')
-        df.values[:] = v[a, b]
-        df = df.dropna(axis=1, how='all').dropna(axis=0, how='any')
-        df = df.rename(columns = {a: b for (a, b) in zip(
-            df.columns.values, np.arange(-window, window + 1e-6, 1/frequency))})
-        df = df.stack().unstack(level=('channel', -1))
-        return df
-
-    peri = logs.apply(f, axis=1)
-    peri['lever'] = logs.lever
-    peri = peri.set_index('lever', append=True)
-    peri = shift_left(peri)
-    return peri
 
 
 def reference(df, region, wave_len, lambd=1e4, smooth_win=10):
@@ -95,10 +31,9 @@ def reference(df, region, wave_len, lambd=1e4, smooth_win=10):
     :return: df with signal, reference and zdFF
     """
     # dirty hack to come around dropped frames until we find better solution - it makes about 0.16 s difference
-    df.FrameCounter = df.index
+    # TODO: it's not 3 for every experiment, only if isobestic + 2 signals
+    df.FrameCounter = df.index // 3
     df = extract_leds(df).dropna()
-
-    df.FrameCounter //= 3
     df = df.pivot('FrameCounter', 'wave_len', region).dropna()
     return get_zdFF(df, wave_len=wave_len, lambd=lambd, smooth_win=smooth_win)
 
@@ -119,8 +54,8 @@ def synchronize(logs, sync_signals, timestamps):
     logs['Timestamp_Bonsai'] = sync_signals.loc[(logs.timestamp // 1).astype(int)].reset_index(drop=True)
 
     # convert Bonsai Timestamps to Frame number
-    logs['Frame_Bonsai'] = timestamps.Item2.searchsorted(logs.Timestamp_Bonsai) // 3
-    return logs
+    logs['FrameCounter'] = timestamps.Item2.searchsorted(logs.Timestamp_Bonsai) // 3
+    return logs.set_index('FrameCounter')
 
 
 def create_giant_logs(project_path):
@@ -151,10 +86,11 @@ def create_giant_logs(project_path):
                 if '.log' in file and mouse in file:
                     logs = pd.read_csv(project_path / analysis / file)
                     logs = synchronize(logs, sync_signals, timestamps)
-                    logs = logs[['lever', 'timestamp', 'Frame_Bonsai']]
+                    logs = logs[['lever', 'timestamp']]
                     logs['Mouse'] = mouse
                     logs['Analysis'] = analysis
-                    logs = logs.set_index(['Analysis', 'Mouse'])
+                    logs = logs.reset_index()
+                    logs = logs.set_index(['Analysis', 'Mouse', 'FrameCounter'])
                     giant = giant.append(logs)
     return giant
 
@@ -179,6 +115,8 @@ def create_giant_dataframe(project_path, data_file):
     for analysis in os.listdir(project_path):
         if analysis == 'meta': continue
         df = pd.read_csv(project_path / analysis / data_file)
+        if 'Flags' in df.columns:  # legacy fix: Flags were renamed to LedState
+            df = df.rename(columns={'Flags': 'LedState'})
         for mouse in overview.index:
             sdf = pd.DataFrame()
             for wave_len in overview.columns:
@@ -189,18 +127,21 @@ def create_giant_dataframe(project_path, data_file):
             giant = giant.append(sdf)
     return giant
 
-#def create_giant_peri_event(df, logs):
 
 if __name__ == '__main__':
-    DATA_DIR = Path(r'C:\Users\Georg\OneDrive - UvA\0 Research\data')
-    df = pd.read_csv('data.csv')
-    #df = df.head(100000)
-    df = df.set_index(['Analysis', 'Mouse', 'FrameCounter'])
-    logs = pd.read_csv('logs.csv')
-    logs = logs.set_index(['Analysis', 'Mouse'])
-    logs = logs.loc[('condition', 'B9724')]
-    perievent = perievents(df, logs, 'FD', 10, 25)
-    perievent.to_csv('perievents.csv')
-    logs = create_giant_logs(DATA_DIR)
-    df = create_giant_dataframe(DATA_DIR, 'FED3.csv')
-    df
+    use_debug_data = False
+    if use_debug_data:
+        df = pd.read_csv('data.csv')
+        df = df.head(100000)
+        df = df.set_index(['Analysis', 'Mouse', 'FrameCounter'])
+        logs = pd.read_csv('logs.csv')
+        logs = logs.set_index(['Analysis', 'Mouse'])
+    else:
+        DATA_DIR = Path(r'C:\Users\Georg\OneDrive - UvA\0 Research\data\data_000')
+        logs = create_giant_logs(DATA_DIR)
+        df = create_giant_dataframe(DATA_DIR, 'FED3.csv')
+    logs = logs[logs['lever'] == 'FD']
+    perievent = perievents(df, logs, 10, 25)
+    perievent = enumerate_trials(perievent)
+    perievent = perievents_to_columns(perievent)
+    perievent.to_csv('debug-02-05-22.csv')

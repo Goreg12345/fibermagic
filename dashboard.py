@@ -9,8 +9,8 @@ from dash import html
 import plotly.express as px
 import pandas as pd
 
-from NeurophotometricsIO import reference, synchronize, perievents, create_giant_logs, create_giant_dataframe, \
-    single_perievent
+from NeurophotometricsIO import reference, synchronize, perievents, create_giant_logs, create_giant_dataframe
+from functions.perievents import single_perievent
 from functions.plot import heatmap, average_line, plot_single, raster_plot
 
 DATA_DIR = Path(r'C:\Users\Georg\OneDrive - UvA\0 Research\data\data_002')
@@ -61,6 +61,8 @@ def update_comparison():
 @cache
 def get_data(data_file, analysis, region, wave_len, lever='FD'):
     sdf = pd.read_csv(DATA_DIR / analysis / DATA_FILE)
+    if 'Flags' in sdf.columns:  # legacy fix: Flags were renamed to LedState
+        sdf = sdf.rename(columns={'Flags': 'LedState'})
     sync_signals = pd.read_csv(DATA_DIR / analysis / 'input1.csv')
     timestamps = pd.read_csv(DATA_DIR / analysis / 'time.csv')
     logs = pd.read_csv(DATA_DIR / data_file)
