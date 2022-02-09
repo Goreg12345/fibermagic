@@ -81,20 +81,10 @@ def enumerate_trials(perievents):
     :return: perievents df with additional index Trial
     """
     # unstack indices to make several counts for each lever and session
+    perievents = perievents.reset_index('FrameCounter', drop=True)
     idx = list(perievents.index.names)
-    idx.remove('FrameCounter')
-    perievents = perievents.unstack(idx).reset_index('FrameCounter', drop=True)
-
-    # move all numbers up and keep order
-    v = perievents.values
-    i = np.arange(v.shape[1])
-    a = np.isnan(v).argsort(0, kind='mergesort')
-    v[:] = v[a, i]
-    perievents = perievents.dropna(how='all')  # remove unnecessary lines to save computation in subsequent stacking
-    perievents.index.names = ['Trial']
-
-    perievents = perievents.stack(level=idx)
-    return perievents
+    perievents['Trial'] = perievents.groupby(idx).cumcount()+1
+    return perievents.set_index('Trial', append=True)
 
 
 def perievents_to_columns(perievents):
