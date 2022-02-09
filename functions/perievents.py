@@ -6,7 +6,7 @@ def single_perievent(df, logs, event, window, frequency):
     """
     produces a time-frequency plot with each event in one column
     :param df: pd Series
-    :param logs: logs df with columns lever and Frame_Bonsai
+    :param logs: logs df with columns event and Frame_Bonsai
     :param event: str, name of event, e.g. FD to build the trials of
     :param window: number of SECONDS to cut left and right off
     :return: event-related df with each trial os a column
@@ -14,7 +14,7 @@ def single_perievent(df, logs, event, window, frequency):
     time_locked = pd.DataFrame()
     i = 1
     dist = window * frequency
-    for t, row in logs[logs['lever'] == event].iterrows():
+    for t, row in logs[logs['event'] == event].iterrows():
         if df.index[0] > t - dist or df.index[-1] < t + dist:
             continue  # reject events if data don't cover the full window
         time_locked['Trial {n}'.format(n=i)] = \
@@ -28,9 +28,47 @@ def single_perievent(df, logs, event, window, frequency):
 
 def perievents(df, logs, window, frequency):
     """
+    produces perievent slices for each event in logs
+    :param df: df with 'Channel' as index and value columns
+    :param logs: logs df with columns event and same index as df
+    :param window: number of SECONDS to cut left and right off
+    :param frequency: int, frequency of recording in Hz
+    :return: perievent dataframe with additional indices event, timestamp and Trial
+    """
+    channels = df.index.unique(level='Channel')
+
+    if 'Channel' not in logs.index.names:  # make indices the same to intersect
+        logs['Channel'] = [list(channels)] * len(logs)
+        logs = logs.explode('Channel').set_index('Channel', append=True)
+        logs = logs.swaplevel(-1, -2)
+    logs = logs.loc[df.index.intersection(logs.index)]  # remove events that are not recorded
+
+    df = df.sort_index()  # to slice it in frame ranges
+    logs['Trial'] = logs.groupby(logs.index.names[:-1]).cumcount()
+    peri = list()
+    timestamps = np.arange(-window, window + 1e-9, 1/frequency)
+
+    # extract slice for each event and concat
+    for index, row in logs.iterrows():
+        start = index[:-1] + (index[-1] - window*frequency,)
+        end = index[:-1] + (index[-1] + window*frequency,)
+
+        single_event = df.loc[start:end]
+        single_event[row.index] = row
+        single_event['timestamp'] = timestamps
+        peri.append(single_event)  # Set on copy warning can be ignored because it is a copy anyways
+    peri = pd.concat(peri)
+
+    peri = peri.set_index(list(logs.columns), append=True)
+    peri = peri.reset_index(['FrameCounter'], drop=True)
+    return peri
+
+
+def perievents_2D(df, logs, window, frequency):
+    """
     produces a time-frequency plot with each event in one column
     :param df: pd Series
-    :param logs: logs df with columns lever and Frame_Bonsai
+    :param logs: logs df with columns event and Frame_Bonsai
     :param event: str, name of event, e.g. FD to build the trials of
     :param window: number of SECONDS to cut left and right off
     :return: event-related df with each trial os a column
@@ -67,20 +105,20 @@ def perievents(df, logs, window, frequency):
         return df
 
     peri = logs.apply(f, axis=1)
-    peri['lever'] = logs.lever
-    peri = peri.set_index('lever', append=True)
+    peri['event'] = logs.event
+    peri = peri.set_index('event', append=True)
     peri = shift_left(peri)
-    return peri
+    return enumerate_trials(peri)
 
 
 def enumerate_trials(perievents):
     """
-    adds an index to perievents that counts the number of trials per session and lever
+    adds an index to perievents_2D that counts the number of trials per session and event
     starting with 1, removes FrameCounter index
     :param perievents: perievents df, non-column based format
     :return: perievents df with additional index Trial
     """
-    # unstack indices to make several counts for each lever and session
+    # unstack indices to make several counts for each event and session
     perievents = perievents.reset_index('FrameCounter', drop=True)
     idx = list(perievents.index.names)
     perievents['Trial'] = perievents.groupby(idx).cumcount()+1

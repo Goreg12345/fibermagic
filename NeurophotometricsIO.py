@@ -46,7 +46,7 @@ def synchronize(logs, sync_signals, timestamps):
     :param timestamps: df with timestamp for each FP frame, columns Item1 and Item2
     :return: log file with new column Frame_Bonsai with FP frame number for each event
     """
-    logs['lever'] = logs['SI@0.0'].str.split('@').str.get(0)
+    logs['event'] = logs['SI@0.0'].str.split('@').str.get(0)
     logs['timestamp'] = logs['SI@0.0'].str.split('@').str.get(1).astype(float)
 
     # join FP SI with logs
@@ -63,7 +63,7 @@ def create_giant_logs(project_path):
     Merges all log files from a project into one
     :param project_path: project root path
     :return: Dataframe with logs in the following form:
-                        lever  timestamp    Frame_Bonsai
+                        event  timestamp    Frame_Bonsai
     Trial 1 mouse A     LL         0.5      242
                         SI        0.56      278
                         FD        0.57      360
@@ -86,7 +86,7 @@ def create_giant_logs(project_path):
                 if '.log' in file and mouse in file:
                     logs = pd.read_csv(project_path / analysis / file)
                     logs = synchronize(logs, sync_signals, timestamps)
-                    logs = logs[['lever', 'timestamp']]
+                    logs = logs[['event', 'timestamp']]
                     logs['Mouse'] = mouse
                     logs['Analysis'] = analysis
                     logs = logs.reset_index()
@@ -111,20 +111,22 @@ def create_giant_dataframe(project_path, data_file):
     ...     ...
     """
     overview = pd.read_csv(project_path / 'meta' / 'overview.csv', delimiter=';').set_index("Mouse")
-    giant = pd.DataFrame()
+    giant = list()
     for analysis in os.listdir(project_path):
         if analysis == 'meta': continue
         df = pd.read_csv(project_path / analysis / data_file)
         if 'Flags' in df.columns:  # legacy fix: Flags were renamed to LedState
             df = df.rename(columns={'Flags': 'LedState'})
         for mouse in overview.index:
-            sdf = pd.DataFrame()
             for wave_len in overview.columns:
-                sdf[wave_len] = reference(df, overview.loc[mouse, wave_len], int(wave_len)).zdFF
-            sdf['Mouse'] = mouse
-            sdf['Analysis'] = analysis
-            sdf = sdf.set_index(['Analysis', 'Mouse', sdf.index])
-            giant = giant.append(sdf)
+                giant.append(pd.DataFrame(data={
+                    'Channel': wave_len,
+                    'zdFF': reference(df, overview.loc[mouse, wave_len], int(wave_len)).zdFF,
+                    'Mouse': mouse,
+                    'Analysis': analysis
+                }))
+    giant = pd.concat(giant)
+    giant = giant.reset_index().set_index(['Analysis', 'Mouse', 'Channel', 'FrameCounter'])
     return giant
 
 
@@ -137,11 +139,9 @@ if __name__ == '__main__':
         logs = pd.read_csv('logs.csv')
         logs = logs.set_index(['Analysis', 'Mouse'])
     else:
-        DATA_DIR = Path(r'C:\Users\Georg\OneDrive - UvA\0 Research\data\data_000')
+        DATA_DIR = Path(r'C:\Users\glange\OneDrive\data\cDATxAdoraPilotRecording2')
         logs = create_giant_logs(DATA_DIR)
         df = create_giant_dataframe(DATA_DIR, 'FED3.csv')
-    logs = logs[logs['lever'] == 'FD']
+    logs = logs[logs['event'] == 'FD']
     perievent = perievents(df, logs, 10, 25)
-    perievent = enumerate_trials(perievent)
-    perievent = perievents_to_columns(perievent)
-    perievent.to_csv('debug-02-05-22.csv')
+    perievent.to_csv('debug-02-09-22.csv')
