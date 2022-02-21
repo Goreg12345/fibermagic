@@ -17,11 +17,18 @@ Reference:
 """
 
 
-def get_zdFF(
-    df, wave_len, smooth_win=10, remove=200, lambd=5e4, porder=1, itermax=50
+def add_zdFF(df, method='airPLS', **kwargs):
+    if method == 'airPLS':
+        df = df.reset_index('FrameCounter', drop=False)
+        df = df.groupby(df.index, group_keys=False).apply(lambda df: zdFF_airPLS(df, **kwargs))
+        return df
+
+
+def zdFF_airPLS(
+    df, smooth_win=10, remove=200, lambd=5e4, porder=1, itermax=50
 ):
     """
-    Calculates z-score dF/F signal based on fiber photometry calcium-idependent
+    Calculates z-score dF/F signal based on fiber photometry calcium-independent
     and calcium-dependent signals
 
     Input
@@ -40,12 +47,12 @@ def get_zdFF(
     """
 
     # remove beginning and end of recording
-    df = df.drop(np.arange(1, remove))\
-        .drop(np.arange(max(df.index) - remove, max(df.index)))
+    df = df[(df.FrameCounter > remove) & (df.FrameCounter < max(df.FrameCounter) - remove)]
+    # df = df.drop(np.arange(1, remove)).drop(np.arange(max(df.index) - remove, max(df.index)))
 
     # Smooth signal
-    reference = smooth_signal(df[410], smooth_win)
-    signal = smooth_signal(df[wave_len], smooth_win)
+    reference = smooth_signal(df['Reference'], smooth_win)
+    signal = smooth_signal(df['Signal'], smooth_win)
 
     # Remove slope using airPLS algorithm
     reference -= airPLS(reference, lambda_=lambd, porder=porder, itermax=itermax)
@@ -71,7 +78,7 @@ def get_zdFF(
         n,
     )
 
-    df.loc[:, 'zdFF'] = signal - reference
+    df['zdFF (airPLS)'] = signal - reference
     return df
 
 
@@ -119,7 +126,10 @@ def smooth_signal(x, window_len=10, window="flat"):
 
     y = np.convolve(w / w.sum(), s, mode="valid")
 
-    return y[(int(window_len / 2) - 1) : -int(window_len / 2)]
+    y = y[(int(window_len / 2) - 1) : -int(window_len / 2)]
+    if len(x) != len(y):
+        y = y[:len(x)]
+    return y
 
 
 """

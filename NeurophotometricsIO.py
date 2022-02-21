@@ -8,6 +8,11 @@ import numpy as np
 from functions.perievents import perievents, perievents_to_columns, enumerate_trials
 
 
+NPM_RED = 560
+NPM_GREEN = 470
+NPM_ISO = 410
+
+
 def extract_leds(df):
     """
     inserts new column 'wave_len' with wave length of LED that was on during the measurement
@@ -16,9 +21,9 @@ def extract_leds(df):
     :return: df with 'wave_len' as additional column
     """
     df['wave_len'] = np.nan
-    df.loc[(df.LedState & 1).astype(bool), 'wave_len'] = 410
-    df.loc[(df.LedState & 2).astype(bool), 'wave_len'] = 470
-    df.loc[(df.LedState & 4).astype(bool), 'wave_len'] = 560
+    df.loc[(df.LedState & 1).astype(bool), 'wave_len'] = NPM_ISO
+    df.loc[(df.LedState & 2).astype(bool), 'wave_len'] = NPM_GREEN
+    df.loc[(df.LedState & 4).astype(bool), 'wave_len'] = NPM_RED
     return df
 
 
@@ -35,7 +40,7 @@ def reference(df, region, wave_len, lambd=1e4, smooth_win=10):
     df.FrameCounter = df.index // 3
     df = extract_leds(df).dropna()
     df = df.pivot('FrameCounter', 'wave_len', region).dropna()
-    return get_zdFF(df, wave_len=wave_len, lambd=lambd, smooth_win=smooth_win)
+    return zdFF_airPLS(df, wave_len=wave_len, lambd=lambd, smooth_win=smooth_win)
 
 
 def synchronize(logs, sync_signals, timestamps):
@@ -58,6 +63,7 @@ def synchronize(logs, sync_signals, timestamps):
     return logs.set_index('FrameCounter')
 
 
+# TODO: rename to read_project_logs
 def create_giant_logs(project_path):
     """
     Merges all log files from a project into one
@@ -95,42 +101,65 @@ def create_giant_logs(project_path):
     return giant
 
 
-def create_giant_dataframe(project_path, data_file):
+# TODO: read_recording_rawdata
+# TODO: read_mouse_rawdata
+def read_project_rawdata(project_path, subdirs, data_file, ignore_dirs=['meta']):
     """
     Runs standard zdFF processing pipeline on every trial, mouse and sensor and puts data together in a single data frame
+    :param ignore_dirs: array of directories to exclude from reading
+    :param subdirs: array with description of subdirectories to be a column
     :param project_path: root path of the project
     :param data_file: name of each file containing raw data
     :return: dataframe with the following multicolumn/index structure
-                        sensor 470  sensor 560  ...
-    Trial 1 mouse A     0.1         0.5
-                        0.25        0.56
-                        0.13        0.57
-            mouse B     ...         ...
-    Trial 2 mouse A     ...
-            mouse B
+                            Signal      Reference
+    Trial 1 mouse A 560     0.1         0.5
+                    560     0.25        0.56
+                    470     0.13        0.57
+            mouse B 560    ...         ...
+    Trial 2 mouse A 470    ...
+            mouse B 560
     ...     ...
     """
-    overview = pd.read_csv(project_path / 'meta' / 'overview.csv', delimiter=';').set_index("Mouse")
-    giant = list()
-    for analysis in os.listdir(project_path):
-        if analysis == 'meta': continue
-        df = pd.read_csv(project_path / analysis / data_file)
-        if 'Flags' in df.columns:  # legacy fix: Flags were renamed to LedState
-            df = df.rename(columns={'Flags': 'LedState'})
-        for mouse in overview.index:
-            for wave_len in overview.columns:
-                giant.append(pd.DataFrame(data={
-                    'Channel': wave_len,
-                    'zdFF': reference(df, overview.loc[mouse, wave_len], int(wave_len)).zdFF,
-                    'Mouse': mouse,
-                    'Analysis': analysis
-                }))
-    giant = pd.concat(giant)
-    giant = giant.reset_index().set_index(['Analysis', 'Mouse', 'Channel', 'FrameCounter'])
-    return giant
+    # walk through all specified subdirectories
+    dfs = list()
+
+    def recursive_listdir(path, levels):
+        if levels:
+            for dir in os.listdir(path):
+                if dir in ignore_dirs: continue
+                recursive_listdir(path / dir, levels-1)
+        else:
+            print(path / data_file)
+            df = pd.read_csv(path / data_file)
+            region_to_mouse = pd.read_csv(path / 'region_to_mouse.csv')
+            if 'Flags' in df.columns:  # legacy fix: Flags were renamed to LedState
+                df = df.rename(columns={'Flags': 'LedState'})
+
+            df = extract_leds(df).dropna()
+            # dirty hack to come around dropped frames until we find better solution - it makes about 0.16 s difference
+            df.FrameCounter = df.index // len(df.wave_len.unique())
+            df = df.set_index('FrameCounter')
+            regions = [column for column in df.columns if 'Region' in column]
+            for region in regions:
+                channel = NPM_RED if 'R' in region else NPM_GREEN
+                sdf = pd.DataFrame(data={
+                    **{subdirs[i]: path.parts[- (len(subdirs) - i)] for i in range(len(subdirs))},
+                    'Mouse': region_to_mouse[region_to_mouse.region == region].mouse.values[0],
+                    'Channel': channel,
+                    'Signal': df[region][df.wave_len == channel],
+                    'Reference': df[region][df.wave_len == NPM_ISO]
+                }
+                )
+                dfs.append(sdf)
+    recursive_listdir(Path(project_path), len(subdirs))
+    df = pd.concat(dfs)
+    df = df.reset_index().set_index([*subdirs, 'Mouse', 'Channel', 'FrameCounter'])
+    return df
 
 
 if __name__ == '__main__':
+    df = read_project_rawdata(r'C:\Users\Georg\OneDrive - UvA\0 Research\data\fdrd2xadora_PR_NAcc', ['Group', 'Paradigm'], 'FED3.csv')
+    df = add_zdFF(df, smooth_win=9, remove=250)
     use_debug_data = False
     if use_debug_data:
         df = pd.read_csv('data.csv')
@@ -139,9 +168,22 @@ if __name__ == '__main__':
         logs = pd.read_csv('logs.csv')
         logs = logs.set_index(['Analysis', 'Mouse'])
     else:
-        DATA_DIR = Path(r'C:\Users\glange\OneDrive\data\cDATxAdoraPilotRecording2')
+        DATA_DIR = Path(r'C:\Users\Georg\OneDrive\data\fdrd2xadora_2_condition')
         logs = create_giant_logs(DATA_DIR)
         df = create_giant_dataframe(DATA_DIR, 'FED3.csv')
     logs = logs[logs['event'] == 'FD']
     perievent = perievents(df, logs, 10, 25)
-    perievent.to_csv('debug-02-09-22.csv')
+    DATA_DIR2 = Path(r'C:\Users\Georg\OneDrive\data\fdrd2xadora_2')
+    logs2 = create_giant_logs(DATA_DIR2)
+    #df2 = create_giant_dataframe(DATA_DIR2, 'FED3.csv')
+    #logs2 = logs2[logs2['event'] == 'FD']
+    logs['group'] = 'condition'
+    logs['group'] = 'control'
+    logs = pd.concat([logs, logs2])
+    logs.to_csv('giant_logs.csv')
+    perievent2 = perievents(df2, logs2, 10, 25)
+    perievent['group'] = 'condition'
+    perievent2['group'] = 'control'
+    perievents = pd.concat([perievent, perievent2])
+
+    perievents.to_csv('fdrd2xa2a_perievents-11.csv')
