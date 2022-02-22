@@ -55,7 +55,7 @@ def perievents(df, logs, window, frequency):
 
         single_event = df.loc[start:end]
         single_event[row.index] = row
-        single_event['timestamp'] = timestamps
+        single_event['Timestamp'] = timestamps
         peri.append(single_event)  # Set on copy warning can be ignored because it is a copy anyways
     peri = pd.concat(peri)
 

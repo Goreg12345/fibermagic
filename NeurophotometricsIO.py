@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 
-from functions.perievents import perievents, perievents_to_columns, enumerate_trials
+from functions.perievents import perievents
 
 
 NPM_RED = 560
@@ -43,7 +43,7 @@ def reference(df, region, wave_len, lambd=1e4, smooth_win=10):
     return zdFF_airPLS(df, wave_len=wave_len, lambd=lambd, smooth_win=smooth_win)
 
 
-def synchronize(logs, sync_signals, timestamps):
+def sync_from_TTL_gen(logs, path):
     """
     attatches Bonsai frame numbers to the the logs
     :param logs: log df with column SI@0.0
@@ -51,54 +51,64 @@ def synchronize(logs, sync_signals, timestamps):
     :param timestamps: df with timestamp for each FP frame, columns Item1 and Item2
     :return: log file with new column Frame_Bonsai with FP frame number for each event
     """
-    logs['event'] = logs['SI@0.0'].str.split('@').str.get(0)
-    logs['timestamp'] = logs['SI@0.0'].str.split('@').str.get(1).astype(float)
+    sync_signals = pd.read_csv(path / 'input1.csv')
+    timestamps = pd.read_csv(path / 'time.csv')
+
+    logs['Event'] = logs['SI@0.0'].str.split('@').str.get(0)
+    logs['Timestamp'] = logs['SI@0.0'].str.split('@').str.get(1).astype(float)
 
     # join FP SI with logs
     sync_signals = sync_signals.drop('Item1', axis=1)
-    logs['Timestamp_Bonsai'] = sync_signals.loc[(logs.timestamp // 1).astype(int)].reset_index(drop=True)
+    logs['Timestamp_Bonsai'] = sync_signals.loc[(logs.Timestamp // 1).astype(int)].reset_index(drop=True)
 
     # convert Bonsai Timestamps to Frame number
     logs['FrameCounter'] = timestamps.Item2.searchsorted(logs.Timestamp_Bonsai) // 3
+    logs = logs[['FrameCounter', 'Event', 'Timestamp']]
     return logs.set_index('FrameCounter')
 
 
-# TODO: rename to read_project_logs
-def create_giant_logs(project_path):
+def read_project_logs(project_path, subdirs, sync_fun=sync_from_TTL_gen, ignore_dirs=['meta']):
     """
     Merges all log files from a project into one
+    :param ignore_dirs: list of directories to exclude from reading
+    :param sync_fun: function to sync custom log files to NPM's FrameCounter
+                     should return a df with 'Event' and 'Timestamp as columns
+                     and 'FrameCounter' as Index
+    :param subdirs:  name of subsequent directory levels to be included as columns
     :param project_path: project root path
     :return: Dataframe with logs in the following form:
-                        event  timestamp    Frame_Bonsai
-    Trial 1 mouse A     LL         0.5      242
-                        SI        0.56      278
-                        FD        0.57      360
-            mouse B     ...         ...
-    Trial 2 mouse A     ...
-            mouse B
-    ...     ...
+                                  Event  Timestamp
+    subdir[0] subdir[1] FrameCounter
+    Trial 1   mouse A   345       LL         0.5
+                        456       SI        0.56
+                        8765      FD        0.57
+              mouse B   567       ...         ...
+    Trial 2   mouse A   765       ...
+              mouse B   456
+    ...       ...
     """
-    overview = pd.read_csv(project_path / 'meta' / 'overview.csv', delimiter=';').set_index("Mouse")
-    giant = pd.DataFrame()
+    dfs = list()
 
-    for analysis in os.listdir(project_path):
-        if analysis == 'meta': continue
-        sync_signals = pd.read_csv(project_path / analysis / 'input1.csv')
-        timestamps = pd.read_csv(project_path / analysis / 'time.csv')
-
-        # find log file for each mouse
-        for mouse in overview.index:
-            for file in os.listdir(project_path / analysis):
-                if '.log' in file and mouse in file:
-                    logs = pd.read_csv(project_path / analysis / file)
-                    logs = synchronize(logs, sync_signals, timestamps)
-                    logs = logs[['event', 'timestamp']]
-                    logs['Mouse'] = mouse
-                    logs['Analysis'] = analysis
-                    logs = logs.reset_index()
-                    logs = logs.set_index(['Analysis', 'Mouse', 'FrameCounter'])
-                    giant = giant.append(logs)
-    return giant
+    def recursive_listdir(path, levels):
+        if levels:
+            for dir in os.listdir(path):
+                if dir in ignore_dirs: continue
+                recursive_listdir(path / dir, levels-1)
+        else:
+            region_to_mouse = pd.read_csv(path / 'region_to_mouse.csv')
+            for mouse in region_to_mouse.mouse.unique():
+                for file in os.listdir(path):
+                    if '.log' in file and mouse in file:
+                        logs = pd.read_csv(path / file)
+                        logs = sync_fun(logs, path)
+                        for i in range(len(subdirs)):
+                            logs[subdirs[i]] = path.parts[- (len(subdirs) - i)]
+                        logs['Mouse'] = mouse
+                        dfs.append(logs)
+    recursive_listdir(Path(project_path), len(subdirs))
+    df = pd.concat(dfs)
+    df = df.reset_index().set_index([*subdirs, 'Mouse', 'FrameCounter'])
+    return df
 
 
 # TODO: read_recording_rawdata
@@ -141,7 +151,7 @@ def read_project_rawdata(project_path, subdirs, data_file, ignore_dirs=['meta'])
             df = df.set_index('FrameCounter')
             regions = [column for column in df.columns if 'Region' in column]
             for region in regions:
-                channel = NPM_RED if 'R' in region else NPM_GREEN
+                channel = NPM_GREEN if 'G' in region else NPM_RED
                 sdf = pd.DataFrame(data={
                     **{subdirs[i]: path.parts[- (len(subdirs) - i)] for i in range(len(subdirs))},
                     'Mouse': region_to_mouse[region_to_mouse.region == region].mouse.values[0],
@@ -158,32 +168,13 @@ def read_project_rawdata(project_path, subdirs, data_file, ignore_dirs=['meta'])
 
 
 if __name__ == '__main__':
-    df = read_project_rawdata(r'C:\Users\Georg\OneDrive - UvA\0 Research\data\fdrd2xadora_PR_NAcc', ['Group', 'Paradigm'], 'FED3.csv')
-    df = add_zdFF(df, smooth_win=9, remove=250)
-    use_debug_data = False
-    if use_debug_data:
-        df = pd.read_csv('data.csv')
-        df = df.head(100000)
-        df = df.set_index(['Analysis', 'Mouse', 'FrameCounter'])
-        logs = pd.read_csv('logs.csv')
-        logs = logs.set_index(['Analysis', 'Mouse'])
+    load_debug_from_disc = True
+    if load_debug_from_disc:
+        df = pd.read_csv('debug_df.csv').set_index(['Group', 'Paradigm', 'Mouse', 'Channel', 'FrameCounter'])
+        logs = pd.read_csv('debug_logs.csv').set_index(['Group', 'Paradigm', 'Mouse', 'FrameCounter'])
     else:
-        DATA_DIR = Path(r'C:\Users\Georg\OneDrive\data\fdrd2xadora_2_condition')
-        logs = create_giant_logs(DATA_DIR)
-        df = create_giant_dataframe(DATA_DIR, 'FED3.csv')
-    logs = logs[logs['event'] == 'FD']
-    perievent = perievents(df, logs, 10, 25)
-    DATA_DIR2 = Path(r'C:\Users\Georg\OneDrive\data\fdrd2xadora_2')
-    logs2 = create_giant_logs(DATA_DIR2)
-    #df2 = create_giant_dataframe(DATA_DIR2, 'FED3.csv')
-    #logs2 = logs2[logs2['event'] == 'FD']
-    logs['group'] = 'condition'
-    logs['group'] = 'control'
-    logs = pd.concat([logs, logs2])
-    logs.to_csv('giant_logs.csv')
-    perievent2 = perievents(df2, logs2, 10, 25)
-    perievent['group'] = 'condition'
-    perievent2['group'] = 'control'
-    perievents = pd.concat([perievent, perievent2])
-
-    perievents.to_csv('fdrd2xa2a_perievents-11.csv')
+        logs = read_project_logs(r'C:\Users\Georg\OneDrive - UvA\0 Research\data\fdrd2xadora_PR_NAcc', ['Group', 'Paradigm'])
+        df = read_project_rawdata(r'C:\Users\Georg\OneDrive - UvA\0 Research\data\fdrd2xadora_PR_NAcc', ['Group', 'Paradigm'], 'FED3.csv')
+        df = add_zdFF(df, smooth_win=9, remove=250)
+    peri = perievents(df, logs[logs.Event=='FD'], 5, 25)
+    peri.to_csv('debug_peri.csv')
