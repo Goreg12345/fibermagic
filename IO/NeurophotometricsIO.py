@@ -1,11 +1,11 @@
 import os
 
-from functions.martianova import *
 from pathlib import Path
 import pandas as pd
 import numpy as np
 
-from functions.perievents import perievents
+from core.demodulate import zdFF_airPLS, add_zdFF
+from core.perievents import perievents
 
 
 NPM_RED = 560
@@ -168,13 +168,13 @@ def read_project_rawdata(project_path, subdirs, data_file, ignore_dirs=['meta'])
 
 
 if __name__ == '__main__':
-    load_debug_from_disc = True
+    load_debug_from_disc = False
     if load_debug_from_disc:
-        df = pd.read_csv('debug_df.csv').set_index(['Group', 'Paradigm', 'Mouse', 'Channel', 'FrameCounter'])
-        logs = pd.read_csv('debug_logs.csv').set_index(['Group', 'Paradigm', 'Mouse', 'FrameCounter'])
+        df = pd.read_csv('../debug_df.csv').set_index(['Group', 'Paradigm', 'Mouse', 'Channel', 'FrameCounter'])
+        logs = pd.read_csv('../debug_logs.csv').set_index(['Group', 'Paradigm', 'Mouse', 'FrameCounter'])
     else:
         logs = read_project_logs(r'C:\Users\Georg\OneDrive - UvA\0 Research\data\fdrd2xadora_PR_NAcc', ['Group', 'Paradigm'])
         df = read_project_rawdata(r'C:\Users\Georg\OneDrive - UvA\0 Research\data\fdrd2xadora_PR_NAcc', ['Group', 'Paradigm'], 'FED3.csv')
-        df = add_zdFF(df, smooth_win=9, remove=250)
+        df = add_zdFF(df, smooth_win=10, remove=200).set_index('FrameCounter', append=True)
     peri = perievents(df, logs[logs.Event=='FD'], 5, 25)
-    peri.to_csv('debug_peri.csv')
+    peri.to_csv('debug/peri.csv')

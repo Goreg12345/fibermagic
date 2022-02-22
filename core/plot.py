@@ -1,9 +1,6 @@
 from matplotlib import pyplot as plt
 import plotly.express as px
 import pandas as pd
-from plotly.subplots import make_subplots
-
-from NeurophotometricsIO import perievents
 
 
 def plot_seperate(signal, reference):

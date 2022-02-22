@@ -14,36 +14,56 @@ Reference:
       (152), e60278, doi:10.3791/60278 (2019)
       https://www.jove.com/video/60278/multi-fiber-photometry-to-record-neural-activity-freely-moving
 
+airPLS.py Copyright 2014 Renato Lombardo - renato.lombardo@unipa.it
+Baseline correction using adaptive iteratively reweighted penalized least squares
+
+This program is a translation in python of the R source code of airPLS version 2.0
+by Yizeng Liang and Zhang Zhimin - https://code.google.com/p/airpls
+
+Reference:
+Z.-M. Zhang, S. Chen, and Y.-Z. Liang, Baseline correction using adaptive iteratively 
+reweighted penalized least squares. Analyst 135 (5), 1138-1146 (2010).
+
+LICENCE
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Lesser General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
 """
 
 
 def add_zdFF(df, method='airPLS', **kwargs):
+    """
+    High-level function for calculating zdFF using various methods and adding zdFF to the df
+    :param df:
+    :param method:
+    :param kwargs:
+    :return:
+    """
     if method == 'airPLS':
         df = df.reset_index('FrameCounter', drop=False)
         df = df.groupby(df.index, group_keys=False).apply(lambda df: zdFF_airPLS(df, **kwargs))
         return df
+    else:
+        raise NotImplementedError('Method {m} is not yet implemented.'.format(m=method))
 
 
 def zdFF_airPLS(
     df, smooth_win=10, remove=200, lambd=5e4, porder=1, itermax=50
 ):
     """
+    Low-level implementation of the airPLS Pipeline
+    Handles values in df as a single datastream
     Calculates z-score dF/F signal based on fiber photometry calcium-independent
     and calcium-dependent signals
-
-    Input
-        reference: calcium-independent signal (usually 405-420 nm excitation), 1D array
-        signal: calcium-dependent signal (usually 465-490 nm excitation for
-                     green fluorescent proteins, or ~560 nm for red), 1D array
-        smooth_win: window for moving average smooth, integer
-        remove: the beginning of the traces with a big slope one would like to remove, integer
-        Inputs for airPLS:
-        lambd: parameter that can be adjusted by user. The larger lambda is,
-                the smoother the resulting background, z
-        porder: adaptive iteratively reweighted penalized least squares for baseline fitting
-        itermax: maximum iteration times
-    Output
-        zdFF - z-score dF/F, 1D numpy array
+        :param df: df with raw data, containing columns 'Signal' and 'Reference'
+        :param smooth_win: window for moving average smooth, integer
+        :param remove: the beginning of the traces with a big slope one would like to remove, integer
+        :param lambd: parameter for airPLS. The larger lambda is,
+                the smoother the resulting background
+        :param porder: adaptive iteratively reweighted penalized least squares for baseline fitting
+        :param itermax: maximum iteration times
+        :return: df with 'zdFF (airPLS)' as an additional column
     """
 
     # remove beginning and end of recording
@@ -83,23 +103,18 @@ def zdFF_airPLS(
 
 
 def smooth_signal(x, window_len=10, window="flat"):
-
-    """smooth the data using a window with requested size.
-
+    """
+    smooth the data using a window with requested size.
     This method is based on the convolution of a scaled window with the signal.
     The signal is prepared by introducing reflected copies of the signal
     (with the window size) in both ends so that transient parts are minimized
     in the begining and end part of the output signal.
     The code taken from: https://scipy-cookbook.readthedocs.io/items/SignalSmooth.html
-
-    input:
-        x: the input signal
-        window_len: the dimension of the smoothing window; should be an odd integer
-        window: the type of window from 'flat', 'hanning', 'hamming', 'bartlett', 'blackman'
+    :param x: np array, the input signal
+    :param window_len: the dimension of the smoothing window; should be an odd integer
+    :param window: the type of window from 'flat', 'hanning', 'hamming', 'bartlett', 'blackman'
                 'flat' window will produce a moving average smoothing.
-
-    output:
-        the smoothed signal
+    :return: array, the smoothed signal
     """
 
     if x.ndim != 1:
@@ -132,60 +147,15 @@ def smooth_signal(x, window_len=10, window="flat"):
     return y
 
 
-"""
-airPLS.py Copyright 2014 Renato Lombardo - renato.lombardo@unipa.it
-Baseline correction using adaptive iteratively reweighted penalized least squares
-
-This program is a translation in python of the R source code of airPLS version 2.0
-by Yizeng Liang and Zhang Zhimin - https://code.google.com/p/airpls
-
-Reference:
-Z.-M. Zhang, S. Chen, and Y.-Z. Liang, Baseline correction using adaptive iteratively 
-reweighted penalized least squares. Analyst 135 (5), 1138-1146 (2010).
-
-Description from the original documentation:
-Baseline drift always blurs or even swamps signals and deteriorates analytical 
-results, particularly in multivariate analysis.  It is necessary to correct baseline 
-drift to perform further data analysis. Simple or modified polynomial fitting has 
-been found to be effective in some extent. However, this method requires user 
-intervention and prone to variability especially in low signal-to-noise ratio 
-environments. The proposed adaptive iteratively reweighted Penalized Least Squares
-(airPLS) algorithm doesn't require any user intervention and prior information, 
-such as detected peaks. It iteratively changes weights of sum squares errors (SSE) 
-between the fitted baseline and original signals, and the weights of SSE are obtained 
-adaptively using between previously fitted baseline and original signals. This 
-baseline estimator is general, fast and flexible in fitting baseline.
-
-
-LICENCE
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>
-"""
-
-
-def WhittakerSmooth(x, w, lambda_, differences=1):
+def whittaker_smooth(x, w, lambda_, differences=1):
     """
     Penalized least squares algorithm for background fitting
-
-    input
-        x: input data (i.e. chromatogram of spectrum)
-        w: binary masks (value of the mask is zero if a point belongs to peaks and one otherwise)
-        lambda_: parameter that can be adjusted by user. The larger lambda is,
+        :param x: input data (i.e. chromatogram of spectrum)
+        :param w: binary masks (value of the mask is zero if a point belongs to peaks and one otherwise)
+        :param lambda_: parameter that can be adjusted by user. The larger lambda is,
                  the smoother the resulting background
-        differences: integer indicating the order of the difference of penalties
-
-    output
-        the fitted background vector
+        :param differences: integer indicating the order of the difference of penalties
+        :return: np array of whittaker smooth
     """
     X = np.matrix(x)
     m = X.size
@@ -204,20 +174,17 @@ def WhittakerSmooth(x, w, lambda_, differences=1):
 def airPLS(x, lambda_=100, porder=1, itermax=15):
     """
     Adaptive iteratively reweighted penalized least squares for baseline fitting
-
-    input
-        x: input data (i.e. chromatogram of spectrum)
-        lambda_: parameter that can be adjusted by user. The larger lambda is,
+        :param x: input data (i.e. chromatogram of spectrum)
+        :param lambda_: parameter that can be adjusted by user. The larger lambda is,
                  the smoother the resulting background, z
-        porder: adaptive iteratively reweighted penalized least squares for baseline fitting
-
-    output
-        the fitted background vector
+        :param porder: adaptive iteratively reweighted penalized least squares for baseline fitting
+        :param itermax: maximal amount of iterations
+        :return: the fitted background vector
     """
     m = x.shape[0]
     w = np.ones(m)
     for i in range(1, itermax + 1):
-        z = WhittakerSmooth(x, w, lambda_, porder)
+        z = whittaker_smooth(x, w, lambda_, porder)
         d = x - z
         dssn = np.abs(d[d < 0].sum())
         if dssn < 0.001 * (abs(x)).sum() or i == itermax:

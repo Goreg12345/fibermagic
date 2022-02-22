@@ -25,8 +25,8 @@ if not LOAD_FROM_DISC:
     logs.to_csv('logs.csv')
     df.to_csv('data.csv')
 else:
-    logs = pd.read_csv('logs.csv').set_index(['Analysis', 'Mouse'])
-    df = pd.read_csv('data.csv').set_index(['Analysis', 'Mouse', 'FrameCounter'])
+    logs = pd.read_csv('../logs.csv').set_index(['Analysis', 'Mouse'])
+    df = pd.read_csv('../data.csv').set_index(['Analysis', 'Mouse', 'FrameCounter'])
 
 
 def update_comparison():
