@@ -8,4 +8,3 @@ Start by importing fibermagic.
 
     import fibermagic
 
-.. autofunction:: fibermagic.IO.NeurophotometricsIO.read_project_logs
