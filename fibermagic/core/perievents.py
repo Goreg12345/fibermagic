@@ -46,12 +46,12 @@ def perievents(df, logs, window, frequency):
     df = df.sort_index()  # to slice it in frame ranges
     logs['Trial'] = logs.groupby(logs.index.names[:-1]).cumcount()
     peri = list()
-    timestamps = np.arange(-window, window + 1e-9, 1/frequency)
+    timestamps = np.arange(-window, window + 1e-9, 1 / frequency)
 
     # extract slice for each event and concat
     for index, row in logs.iterrows():
-        start = index[:-1] + (index[-1] - window*frequency,)
-        end = index[:-1] + (index[-1] + window*frequency,)
+        start = index[:-1] + (index[-1] - window * frequency,)
+        end = index[:-1] + (index[-1] + window * frequency,)
 
         single_event = df.loc[start:end]
         single_event[row.index] = row
@@ -75,7 +75,6 @@ def perievents_2D(df, logs, window, frequency):
     """
     # TODO: make a good documentation for this shit
     channels = df.columns
-    #logs['FrameCounter'] = logs['Frame_Bonsai']
 
     # stack all idx but not the FrameCounter to be able to select and slice
     logs['channel'] = [list(channels)] * len(logs)
@@ -89,18 +88,18 @@ def perievents_2D(df, logs, window, frequency):
         idx = row.name[:-1]
         frame = row.name[-1]
         s_df = df_stacked[idx].dropna().sort_index()
-        s_df = s_df.loc[frame - window*frequency : frame + window*frequency]
+        s_df = s_df.loc[frame - window * frequency:frame + window * frequency]
         return s_df
 
     def shift_left(df):
         v = df.values
         # TODO: replace with numpy
-        a = [[n]*v.shape[1] for n in range(v.shape[0])]
-        b = pd.isnull(v).argsort(axis=1, kind = 'mergesort')
+        a = [[n] * v.shape[1] for n in range(v.shape[0])]
+        b = pd.isnull(v).argsort(axis=1, kind='mergesort')
         df.values[:] = v[a, b]
         df = df.dropna(axis=1, how='all').dropna(axis=0, how='any')
-        df = df.rename(columns = {a: b for (a, b) in zip(
-            df.columns.values, np.arange(-window, window + 1e-6, 1/frequency))})
+        df = df.rename(columns={a: b for (a, b) in zip(
+            df.columns.values, np.arange(-window, window + 1e-6, 1 / frequency))})
         df = df.stack().unstack(level=('channel', -1))
         return df
 
@@ -121,7 +120,7 @@ def enumerate_trials(perievents):
     # unstack indices to make several counts for each event and session
     perievents = perievents.reset_index('FrameCounter', drop=True)
     idx = list(perievents.index.names)
-    perievents['Trial'] = perievents.groupby(idx).cumcount()+1
+    perievents['Trial'] = perievents.groupby(idx).cumcount() + 1
     return perievents.set_index('Trial', append=True)
 
 

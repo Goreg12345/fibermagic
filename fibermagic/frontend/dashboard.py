@@ -1,5 +1,4 @@
 import os
-import time
 from functools import cache
 from pathlib import Path
 
@@ -37,7 +36,8 @@ def update_comparison():
     table = html.Table(
         style={'width': '100%'},
         children=[
-            html.Tr([html.Th(label, style={'width': '16%'}) for label in ['PR2, 560', 'PR2, 470', 'PR5, 560', 'PR5, 470', 'PR8, 560', 'PR8, 470']])
+            html.Tr([html.Th(label, style={'width': '16%'}) for label in ['PR2, 560', 'PR2, 470', 'PR5, 560',
+                                                                          'PR5, 470', 'PR8, 560', 'PR8, 470']])
         ]
     )
     for mouse in overview.Mouse:
@@ -86,7 +86,8 @@ def list_trials_and_mice():
         for file in os.listdir(DATA_DIR / analysis):
             if '.log' in file:
                 analyses.append(
-                    {'label': 'Paradigm: {p}, Mouse: {m}'.format(p=analysis, m=file), 'value': str(Path(analysis) / file)}
+                    {'label': 'Paradigm: {p}, Mouse: {m}'.format(p=analysis, m=file),
+                     'value': str(Path(analysis) / file)}
                 )
     return analyses
 #########################################################
@@ -104,14 +105,14 @@ app.layout = html.Div(children=[
                                    dcc.Dropdown(
                                        id='analysis-dropdown',
                                        options=list_trials_and_mice(),
-                                       #value=['MTL', 'SF'],
+                                       # value=['MTL', 'SF'],
                                        multi=False
                                    ),
                                    dcc.Dropdown(
                                        id='marker',
                                        options=[{'label': 'Gcamp', 'value': '470'},
                                                 {'label': 'Rdlight', 'value': '560'}],
-                                       #value=['Rdlight'],
+                                       # value=['Rdlight'],
                                        multi=False
                                    ),
                                    ]),
@@ -141,7 +142,7 @@ app.layout = html.Div(children=[
             dcc.Dropdown(
                 id='analysis-dropdown-events',
                 options=list_trials_and_mice(),
-                #value=['MTL', 'SF'],
+                # value=['MTL', 'SF'],
                 multi=False
             ),
             dcc.Graph(
@@ -150,12 +151,12 @@ app.layout = html.Div(children=[
             )
         ]),
         dcc.Tab(label='Comparison', id='comparison', children=[
-            #dcc.Dropdown(
+            # dcc.Dropdown(
             #    id='mouse-dropdown',
             #    options=[{'label': mouse, 'value': mouse} for mouse in list(overview.Mouse)],
             #    #value=['MTL', 'SF'],
             #    multi=False
-            #),
+            # ),
             html.Div(
                 id='comparison-plot',
                 children=update_comparison()
@@ -177,7 +178,8 @@ app.layout = html.Div(children=[
 #      for paradigm in ['PR2', 'PR5', 'PR8']:
 #          for sensor in ['560', '470']:
 #              sdf = df.loc[(paradigm, mouse), sensor]
-#              locked = lock_time_to_event(sdf, logs.loc[(paradigm, mouse)].reset_index(), event, 15, frequency=FREQUENCY)
+#              locked = lock_time_to_event(sdf, logs.loc[(paradigm, mouse)].reset_index(),
+#              event, 15, frequency=FREQUENCY)
 #              children.append(
 #                  dcc.Graph(
 #                      id='{p}-{s}'.format(p=paradigm, s=sensor),
@@ -213,7 +215,7 @@ def update_graph(analysis, marker):
         return [px.line(pd.DataFrame())] * 5
     paradigm = analysis.split('\\')[0]
     mouse = analysis.split('-1.log')[0][-5:]
-    wave_len = 560 if marker=='560' else 470
+    wave_len = 560 if marker == '560' else 470
     print(wave_len, overview[overview.Mouse == mouse][marker])
     return get_data(analysis, paradigm, overview[overview.Mouse == mouse][marker].iloc[0], wave_len)
 

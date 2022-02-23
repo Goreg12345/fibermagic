@@ -21,7 +21,7 @@ This program is a translation in python of the R source code of airPLS version 2
 by Yizeng Liang and Zhang Zhimin - https://code.google.com/p/airpls
 
 Reference:
-Z.-M. Zhang, S. Chen, and Y.-Z. Liang, Baseline correction using adaptive iteratively 
+Z.-M. Zhang, S. Chen, and Y.-Z. Liang, Baseline correction using adaptive iteratively
 reweighted penalized least squares. Analyst 135 (5), 1138-1146 (2010).
 
 LICENCE
@@ -126,7 +126,7 @@ def smooth_signal(x, window_len=10, window="flat"):
     if window_len < 3:
         return x
 
-    if not window in ["flat", "hanning", "hamming", "bartlett", "blackman"]:
+    if window not in ["flat", "hanning", "hamming", "bartlett", "blackman"]:
         raise (
             ValueError,
             "Window is one of 'flat', 'hanning', 'hamming', 'bartlett', 'blackman'",
@@ -159,7 +159,6 @@ def whittaker_smooth(x, w, lambda_, differences=1):
     """
     X = np.matrix(x)
     m = X.size
-    i = np.arange(0, m)
     E = eye(m, format="csc")
     D = (
         E[1:] - E[:-1]

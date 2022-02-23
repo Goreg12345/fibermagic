@@ -7,7 +7,7 @@ import plotly.express as px
 DATA_DIR = Path(r'E:\independent test')
 DATA_FILE = 'red_independence'
 columns_r = ['Region0R', 'Region2R', 'Region4R', 'Region6R', 'Region8R', 'Region10R', 'Region12R']
-columns_g = ['Region1G', 'Region3G', 'Region5G', 'Region7G',  'Region11G', 'Region13G','Region9G']
+columns_g = ['Region1G', 'Region3G', 'Region5G', 'Region7G', 'Region11G', 'Region13G', 'Region9G']
 
 columns = columns_r
 

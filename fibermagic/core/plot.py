@@ -6,9 +6,9 @@ import pandas as pd
 def plot_seperate(signal, reference):
     fig = plt.figure(figsize=(16, 10))
     ax1 = fig.add_subplot(211)
-    ax1.plot(signal,'blue',linewidth=1.5)
+    ax1.plot(signal, 'blue', linewidth=1.5)
     ax2 = fig.add_subplot(212)
-    ax2.plot(reference,'purple',linewidth=1.5)
+    ax2.plot(reference, 'purple', linewidth=1.5)
     plt.show()
 
 
@@ -37,10 +37,7 @@ def heatmap(time_locked, mouse, paradigm='unkown', sensor='unknown', event='FD')
 
 def average_line(time_locked, mouse, ):
     fig = px.line(time_locked['average'], title='Average of {mouse}'.format(mouse=mouse),
-                  labels={
-                      'index': 'Time in Frames',
-                      'value': 'zdFF'
-                  })
+                  labels={'index': 'Time in Frames', 'value': 'zdFF'})
     fig.add_vline(x=0, line_dash="dash", line_color="green")
     return fig
 

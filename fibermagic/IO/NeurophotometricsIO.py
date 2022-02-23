@@ -4,9 +4,8 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 
-from fibermagic.core import zdFF_airPLS, add_zdFF
-from fibermagic.core import perievents
-
+from fibermagic.core.perievents import perievents
+from fibermagic.core.demodulate import zdFF_airPLS, add_zdFF
 
 NPM_RED = 560
 NPM_GREEN = 470
@@ -92,8 +91,9 @@ def read_project_logs(project_path, subdirs, sync_fun=sync_from_TTL_gen, ignore_
     def recursive_listdir(path, levels):
         if levels:
             for dir in os.listdir(path):
-                if dir in ignore_dirs: continue
-                recursive_listdir(path / dir, levels-1)
+                if dir in ignore_dirs:
+                    continue
+                recursive_listdir(path / dir, levels - 1)
         else:
             region_to_mouse = pd.read_csv(path / 'region_to_mouse.csv')
             for mouse in region_to_mouse.mouse.unique():
@@ -115,7 +115,7 @@ def read_project_logs(project_path, subdirs, sync_fun=sync_from_TTL_gen, ignore_
 # TODO: read_mouse_rawdata
 def read_project_rawdata(project_path, subdirs, data_file, ignore_dirs=['meta']):
     """
-    Runs standard zdFF processing pipeline on every trial, mouse and sensor and puts data together in a single data frame
+    Runs standard zdFF processing pipeline on every trial, mouse and sensor and puts data together in a single df
     :param ignore_dirs: array of directories to exclude from reading
     :param subdirs: array with description of subdirectories to be a column
     :param project_path: root path of the project
@@ -136,8 +136,9 @@ def read_project_rawdata(project_path, subdirs, data_file, ignore_dirs=['meta'])
     def recursive_listdir(path, levels):
         if levels:
             for dir in os.listdir(path):
-                if dir in ignore_dirs: continue
-                recursive_listdir(path / dir, levels-1)
+                if dir in ignore_dirs:
+                    continue
+                recursive_listdir(path / dir, levels - 1)
         else:
             print(path / data_file)
             df = pd.read_csv(path / data_file)
@@ -146,7 +147,8 @@ def read_project_rawdata(project_path, subdirs, data_file, ignore_dirs=['meta'])
                 df = df.rename(columns={'Flags': 'LedState'})
 
             df = extract_leds(df).dropna()
-            # dirty hack to come around dropped frames until we find better solution - it makes about 0.16 s difference
+            # dirty hack to come around dropped frames until we find better solution -
+            # it makes about 0.16 s difference
             df.FrameCounter = df.index // len(df.wave_len.unique())
             df = df.set_index('FrameCounter')
             regions = [column for column in df.columns if 'Region' in column]
@@ -173,8 +175,10 @@ if __name__ == '__main__':
         df = pd.read_csv('../debug_df.csv').set_index(['Group', 'Paradigm', 'Mouse', 'Channel', 'FrameCounter'])
         logs = pd.read_csv('../debug_logs.csv').set_index(['Group', 'Paradigm', 'Mouse', 'FrameCounter'])
     else:
-        logs = read_project_logs(r'C:\Users\Georg\OneDrive - UvA\0 Research\data\fdrd2xadora_PR_NAcc', ['Group', 'Paradigm'])
-        df = read_project_rawdata(r'C:\Users\Georg\OneDrive - UvA\0 Research\data\fdrd2xadora_PR_NAcc', ['Group', 'Paradigm'], 'FED3.csv')
+        logs = read_project_logs(r'C:\Users\Georg\OneDrive - UvA\0 Research\data\fdrd2xadora_PR_NAcc',
+                                 ['Group', 'Paradigm'])
+        df = read_project_rawdata(r'C:\Users\Georg\OneDrive - UvA\0 Research\data\fdrd2xadora_PR_NAcc',
+                                  ['Group', 'Paradigm'], 'FED3.csv')
         df = add_zdFF(df, smooth_win=10, remove=200).set_index('FrameCounter', append=True)
-    peri = perievents(df, logs[logs.Event=='FD'], 5, 25)
+    peri = perievents(df, logs[logs.Event == 'FD'], 5, 25)
     peri.to_csv('debug/peri.csv')
