@@ -1,0 +1,11 @@
+name: fibermagic
+dependencies:
+  - python=3.9.7
+  - numpy
+  - pandas
+  - matplotlib
+  - black
+  - scipy
+  - scikit-learn
+  - plotly
+  - dash
