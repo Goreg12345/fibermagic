@@ -12,7 +12,7 @@ fibermagic
 Python package for Fiber Photometry Data Analysis
 
 * Free software: 3-clause BSD license
-* Documentation: (COMING SOON!) https://Goreg12345.github.io/fibermagic.
+* Documentation: (COMING SOON!!) https://Goreg12345.github.io/fibermagic.
 
 Features
 --------
