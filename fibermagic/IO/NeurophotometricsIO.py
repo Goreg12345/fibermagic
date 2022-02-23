@@ -4,8 +4,8 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 
-from core.demodulate import zdFF_airPLS, add_zdFF
-from core.perievents import perievents
+from fibermagic.core import zdFF_airPLS, add_zdFF
+from fibermagic.core import perievents
 
 
 NPM_RED = 560
