@@ -10,8 +10,8 @@ fibermagic Documentation
    :maxdepth: 2
 
    installation
-   usage
    data-organization
-   tutorial/Fibermagic Tutorial.ipynb
+   Data Processing Example.ipynb
+   Fibermagic Tutorial.ipynb
    release-history
    min_versions
