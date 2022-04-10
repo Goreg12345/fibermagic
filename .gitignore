@@ -85,4 +85,8 @@ target/
 tableau
 logs.csv
 data.csv
-.debug
+*.debug
+*.csv
+*.m4v
+*.stat
+*.zip
