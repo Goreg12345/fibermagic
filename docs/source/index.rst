@@ -12,5 +12,6 @@ fibermagic Documentation
    installation
    usage
    data-organization
+   tutorial/Fibermagic Tutorial.ipynb
    release-history
    min_versions
