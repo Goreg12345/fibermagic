@@ -11,5 +11,6 @@ fibermagic Documentation
 
    installation
    usage
+   data-organization
    release-history
    min_versions
