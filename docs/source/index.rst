@@ -13,5 +13,6 @@ fibermagic Documentation
    data-organization
    Data Processing Example.ipynb
    Fibermagic Tutorial.ipynb
+   api-docs
    release-history
    min_versions

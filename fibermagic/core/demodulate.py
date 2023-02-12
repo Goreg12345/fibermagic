@@ -1,5 +1,8 @@
+from functools import partial
+
 import numpy as np
 import pandas as pd
+from scipy.optimize import curve_fit
 from sklearn.linear_model import Lasso
 from scipy.sparse import csc_matrix, eye, diags
 from scipy.sparse.linalg import spsolve
@@ -10,22 +13,38 @@ tqdm.pandas()
 
 
 def demodulate(
-    data=None, timestamps=None, signal=None, isosbestic=None, by=None, steps=False, method="airPLS", **kwargs
+    data=None,
+    timestamps=None,
+    signal=None,
+    isosbestic=None,
+    by=None,
+    steps=False,
+    method="airPLS",
+    smooth=None,
+    **kwargs
 ):
     """
     High-level function to demodulate signal
 
+    Supports two methods for baseline correction: airPLS and biexponential decay.
+
+    If isosbestic is given, performs artifact removal using the isosbestic signal
+
     Parameters
     ----------
-    data : pd.DataFrame or dict with raw data
-        the data to demodulate, if None, timestamps, signal and isosbestic must be provided as array-like
-    timestamps : str or array-like of the column with timestamps; if str, it is the name of the column in data
+    data : pd.DataFrame or dict
+        raw data to demodulate, if None, timestamps, signal and isosbestic must be provided as array-like
+    timestamps : str or array-like
+        the array with timestamps; if str, it is the name of the column in data
         the column with timestamps or the timestamps themselves
-    signal : str or array-like of the column with signal; if str, it is the name of the column in data
+    signal : str or array-like
+        the column with signal; if str, it is the name of the column in data
         the column with signal or the signal itself
-    isosbestic : str or array-like of the column with isosbestic signal; if str, it is the name of the column
-    in data the column with isosbestic signal or the isosbestic signal itself
-    by : str or list with column names to group by or array-like with group labels, has to be the same length as
+    isosbestic : str or array-like
+        the column with isosbestic signal; if str, it is the name of the column
+        in data the column with isosbestic signal or the isosbestic signal itself
+    by : str or list
+        with column names to group by or array-like with group labels, has to be the same length as
         the data
         divides the data into groups and demodulates each group separately, typically you should pass enough
         columns to uniquely identify each session
@@ -33,6 +52,9 @@ def demodulate(
         if True, returns intermediate steps as a pd.DataFrame
     method : str
         method to use for demodulation, one of [airPLS, biexponential decay] or None if only artifact removal
+        is needed
+    smooth : int
+        length of the smoothing kernel; used to smooth the signal and isosbestic before demodulation
     kwargs : dict
         parameters for airPLS or biexponential decay.
 
@@ -61,7 +83,8 @@ def demodulate(
         by=by,
         steps=steps,
         method=method,
-        **kwargs
+        smooth=smooth,
+        **kwargs,
     )
 
     return demodulator()
@@ -77,6 +100,7 @@ class _Demodulator:
         by=None,
         steps=False,
         method="airPLS",
+        smooth=None,
         **kwargs
     ):
 
@@ -85,14 +109,31 @@ class _Demodulator:
         self.isosbestic = isosbestic
 
         # convert input to a common representation
-        if type(data) != pd.DataFrame:
-            if data:
+        # check if type of data is a pd.DataFrame
+        if not isinstance(data, pd.DataFrame):
+            if data:  # then it must be a dict and/or data are provided as an array
                 timestamps = data.get(timestamps, timestamps)
                 signal = data.get(signal, signal)
                 isosbestic = data.get(isosbestic, isosbestic)
+
+                if isinstance(by, str):
+                    by_data = data.get(by, by)
+                elif isinstance(by, list):
+                    by_data = [data.get(x, x) for x in by]
+
             if any([type(x) == str for x in [timestamps, signal, isosbestic]]):
                 raise ValueError("If data is not provided, timestamps, signal and isosbestic must be array-like")
-            data = pd.DataFrame({"timestamps": timestamps, "signal": signal, "isosbestic": isosbestic})
+            if by:
+                data = pd.DataFrame(
+                    {
+                        "timestamps": timestamps,
+                        "signal": signal,
+                        "isosbestic": isosbestic,
+                        **dict(zip(by, by_data)),
+                    }
+                )
+            else:
+                data = pd.DataFrame({"timestamps": timestamps, "signal": signal, "isosbestic": isosbestic})
         else:
             # check if column names is exists if they are not None
             if type(timestamps) == str and timestamps not in data.columns:
@@ -132,6 +173,7 @@ class _Demodulator:
             n_groups = len(data.groupby(by=by).groups)
             if n_groups == 1:
                 self.by = None
+        self.smooth = smooth
 
         # set parameters
         self.lambda_ = kwargs.get("lambda", 5e4)
@@ -147,10 +189,9 @@ class _Demodulator:
 
         # if method None, only artifact removal
         if not self.method:
-            if not self.data.isosbestic:
+            if self.data.isosbestic is None:
                 raise ValueError("isosbestic must be provided for artifact removal")
-            if not self.by:
-                method = self.remove_artifact
+            method = self.remove_artifact
 
         # if no isosbestic is provided, only demodulate, no artifact removal
         if not self.isosbestic:
@@ -165,6 +206,14 @@ class _Demodulator:
             elif self.method == "biexponential decay":
                 method = self.demodulate_with_biexponential_decay_and_remove_artifact
 
+        def smooth(method, data):
+            data.signal = data.signal.rolling(self.smooth, center=True, min_periods=1).mean()
+            data.isosbestic = data.isosbestic.rolling(self.smooth, center=True, min_periods=1).mean()
+            return method(data)
+
+        if self.smooth:
+            method = partial(smooth, method)
+
         if not self.by:
             return method(self.data)
         # don't sort and return index, because it should be possible to assign the result to the original index
@@ -175,69 +224,85 @@ class _Demodulator:
             r.name = column_name
         return r.reset_index(level=0, drop=True)
 
-    def demodulate_with_airPLS_and_remove_artifact(self):
+    def demodulate_with_airPLS_and_remove_artifact(self, data):
         """
-        Demodulate signal using airPLS and remove artifact, operates on numpy arrays
+        Demodulate signal using airPLS and remove artifact
+
         Returns
         -------
-        np.array with artifact removed signal or df with intermediate steps as additional columns
-
+        pd.Series with artifact removed signal or df with intermediate steps as additional columns
         """
 
-        signal = self.demodulate_with_airPLS()
-        if self.steps:
-            # make dataframe with intermediate steps
-            res_df = signal
-            signal = signal["dFF"].to_numpy()
-        signal = self.remove_artifact(signal)
-        if self.steps:
-            return pd.concat([res_df, signal], axis=1)
-        return signal
+        result = self.demodulate_with_airPLS(data)
+        signal = result["dFF"] if self.steps else result
 
-    def demodulate_with_biexponential_decay_and_remove_artifact(timestamps, signal, isosbestic, steps=False):
+        # pass demodulated signal to remove artifact on this one, not on the original signal
+        result = self.remove_artifact(data, signal)
+        return result
+
+    def demodulate_with_biexponential_decay_and_remove_artifact(self, data):
         """
-        Low-level function to demodulate signal using biexponential decay and remove artifact, operates on numpy
-        arrays
+        Demodulate signal using biexponential decay and remove artifacts using isosbestic
+
+        First, dFF is calculated using biexponential decay.
+
+        Then, artifact is removed by aligning, scaling and subtracting isosbestic signal.
+        To align isosbestic signal, airPLS is used.
+
         Parameters
         ----------
-        timestamps: np.array with timestamps
-        signal: np.array with signal
-        isosbestic: np.array with isosbestic signal
-        steps: if True, returns intermediate steps
+        data: pd.DataFrame
+            with columns signal and isosbestic
 
         Returns
         -------
-
+        pd.Series with artifact removed signal or df with intermediate steps as additional columns
         """
-        pass  # TODO
 
-    def remove_artifact(self, artifact_signal=None):
+        result = self.demodulate_with_biexponential_decay(data)
+        signal = result["dFF"] if self.steps else result
+
+        # pass demodulated signal to remove artifact on this one, not on the original signal
+        result = self.remove_artifact(data, signal)
+        return result
+
+    def remove_artifact(self, data, artifact_signal=None):
         """
-        Low-level function to remove artifact from signal, operates on numpy arrays
-        :param artifact_signal: np.array with artifact signal, if None, raw signal is used
-        :return: np.array with artifact removed signal
+        Remove artifact from signal by scaling and subtracting isosbestic signal
+
+        Parameters
+        ----------
+        data: pd.DataFrame with columns signal and isosbestic
+        artifact_signal: pd.DataFrame, optional, default: None
+            if given, use this signal for artifact removal instead of data.signal
+
+        Returns
+        -------
+        pd.Series with artifact removed signal or df with intermediate steps as additional columns
         """
 
         if artifact_signal is None:
-            artifact_signal = self.data.signal.to_numpy()
+            artifact_signal = data.signal
 
-        res = pd.DataFrame()
+        # test if len of data and artifact_signal are equal
+        if len(data) != len(artifact_signal):
+            raise ValueError("data and artifact_signal must have the same length")
 
-        res["isosbestic_airPLS"] = self.airPLS(
-            self.data.isosbestic.to_numpy(),
+        data["isosbestic_airPLS_baseline"] = self.airPLS(
+            data.isosbestic.to_numpy(),
             lambda_=self.lambda_artifact,
             porder=self.porder_artifact,
             itermax=self.itermax_artifact,
         )
-        res["signal_airPLS"] = self.airPLS(
-            artifact_signal,
+        data["signal_airPLS_baseline"] = self.airPLS(
+            artifact_signal.to_numpy(),
             lambda_=self.lambda_artifact,
             porder=self.porder_artifact,
             itermax=self.itermax_artifact,
         )
 
-        res["signal_wo_slope"] = artifact_signal - res.signal_airPLS
-        res["isosbestic_wo_slope"] = self.data.isosbestic.to_numpy() - res.isosbestic_airPLS
+        data["signal_wo_slope"] = artifact_signal - data.signal_airPLS_baseline
+        data["isosbestic_wo_slope"] = data.isosbestic - data.isosbestic_airPLS_baseline
 
         # Align reference signal to calcium signal using non-negative robust linear regression
         lin = Lasso(
@@ -250,20 +315,20 @@ class _Demodulator:
         )
 
         # zero-center both signals
-        res["isosbestic_centered"] = res.isosbestic_wo_slope - np.median(res.isosbestic_wo_slope)
-        res["signal_centered"] = res.signal_wo_slope - np.median(res.signal_wo_slope)
+        data["isosbestic_centered"] = data.isosbestic_wo_slope - data.isosbestic_wo_slope.median()
+        data["signal_centered"] = data.signal_wo_slope - data.signal_wo_slope.median()
 
-        n = len(res.isosbestic_centered)
-        lin.fit(res.isosbestic_centered.to_numpy().reshape(n, 1), res.signal_centered.to_numpy().reshape(n, 1))
-        res["isosbestic_fit"] = lin.predict(res.isosbestic_centered.to_numpy().reshape(n, 1)).reshape(
+        n = len(data.isosbestic_centered)
+        lin.fit(data.isosbestic_centered.to_numpy().reshape(n, 1), data.signal_centered.to_numpy().reshape(n, 1))
+        data["isosbestic_fit"] = lin.predict(data.isosbestic_centered.to_numpy().reshape(n, 1)).reshape(
             n,
         )
 
-        res["signal_wo_artifacts"] = artifact_signal - res.isosbestic_fit
+        data["signal_wo_artifacts"] = artifact_signal - data.isosbestic_fit
 
         if self.steps:
-            return res
-        return res.signal_wo_artifacts
+            return data
+        return data.signal_wo_artifacts
 
     def demodulate_with_airPLS(self, data):
         """
@@ -291,19 +356,47 @@ class _Demodulator:
             return data
         return data.dFF
 
-    def demodulate_with_biexponential_decay(timestamps, signal, per, steps=False):
+    def demodulate_with_biexponential_decay(self, data):
         """
         Low-level function to demodulate signal using biexponential decay
-        :param df: df with raw data, containing columns 'Signal' and 'Reference'
-        :param per: int, period of the signal
-        :param steps: if True, returns intermediate steps
-        :return: pd.Series with demodulated signal
+
+        Attention: at the moment, only uses exponential decay
+
+        Parameters
+        ----------
+        data: pd.DataFrame
+            with raw signal and timestamps
+
+        Returns
+        -------
+        pd.Series with demodulated signal or df with intermediate steps as additional columns
+
         """
 
-        # Demodulate signal
-        df["Demodulated"] = df["Signal"] / df["Reference"]
-        df["Demodulated"] = df["Demodulated"].rolling(per, center=True).mean()
-        return df
+        def func(x, a, b, c):
+            return a * np.exp(-b * x) + c
+
+        # estimate y-axis offset using mean of first 1000 points
+        # to get a good start for the curve fit
+        if len(data.signal) > 1000:
+            base = data.signal.iloc[0:1000].mean()
+        else:
+            base = data.signal.mean()
+
+        x = data.timestamps
+        yn = data.signal
+        try:
+            popt, pcov = curve_fit(func, x, yn, p0=np.array([1.98685557e-02, 4.19058443e-06, base]), maxfev=3000)
+        except Exception:
+            popt, pcov = curve_fit(func, x, yn, p0=np.array([1.98685557e-03, 4.19058443e-06, base]), maxfev=3000)
+
+        data["exponential_decay"] = func(x, *popt)
+
+        data["dFF"] = (data.signal - data.exponential_decay) / data.exponential_decay
+
+        if self.steps:
+            return data
+        return data.dFF
 
     @staticmethod
     def smooth_signal(x, window_len=10, window="flat"):
@@ -353,58 +446,6 @@ class _Demodulator:
         return y
 
     """
-    # TODO: delete
-    def zdFF_airPLS(df, smooth_win=10, remove=200, lambd=5e4, porder=1, itermax=50):
-        Low-level implementation of the airPLS Pipeline
-        Handles values in df as a single datastream
-        Calculates z-score dF/F signal based on fiber photometry calcium-independent
-        and calcium-dependent signals
-            :param df: df with raw data, containing columns 'Signal' and 'Reference'
-            :param smooth_win: window for moving average smooth, integer
-            :param remove: the beginning of the traces with a big slope one would like to remove, integer
-            :param lambd: parameter for airPLS. The larger lambda is,
-                    the smoother the resulting background
-            :param porder: adaptive iteratively reweighted penalized least squares for baseline fitting
-            :param itermax: maximum iteration times
-            :return: df with 'zdFF (airPLS)' as an additional column
-        #
-
-        # remove beginning and end of recording
-        df = df[(df.FrameCounter > remove) & (df.FrameCounter < max(df.FrameCounter) - remove)]
-        # df = df.drop(np.arange(1, remove)).drop(np.arange(max(df.index) - remove, max(df.index)))
-
-        # Smooth signal
-        reference = smooth_signal(df["Reference"], smooth_win)
-        signal = smooth_signal(df["Signal"], smooth_win)
-
-        # Remove slope using airPLS algorithm
-        reference -= airPLS(reference, lambda_=lambd, porder=porder, itermax=itermax)
-        signal -= airPLS(signal, lambda_=lambd, porder=porder, itermax=itermax)
-
-        # Standardize signals
-        # TODO: why use median and not mean?
-        reference = (reference - np.median(reference)) / np.std(reference)
-        signal = (signal - np.median(signal)) / np.std(signal)
-
-        # Align reference signal to calcium signal using non-negative robust linear regression
-        lin = Lasso(
-            alpha=0.0001,
-            precompute=True,
-            max_iter=1000,
-            positive=True,
-            random_state=9999,
-            selection="random",
-        )
-        n = len(reference)
-        lin.fit(reference.reshape(n, 1), signal.reshape(n, 1))
-        reference = lin.predict(reference.reshape(n, 1)).reshape(
-            n,
-        )
-
-        df["zdFF (airPLS)"] = signal - reference
-        return df
-
-
     Ocober 2019 Ekaterina Martianova ekaterina.martianova.1@ulaval.ca
 
     Reference:
@@ -496,29 +537,25 @@ if __name__ == "__main__":
     df.Signal -= 1 / 255
     df.Reference -= 1 / 255
     # ex = df[(df.injection=='baseline') & (df.mouse=='A1') & (df.Channel==560)].copy()
-    ex = df
-    ex.Signal = ex.Signal.rolling(8, center=True, min_periods=1).mean()
-    ex.Reference = ex.Reference.rolling(8, center=True, min_periods=1).mean()
+    df.Signal = df.Signal.rolling(8, center=True, min_periods=1).mean()
+    df.Reference = df.Reference.rolling(8, center=True, min_periods=1).mean()
 
     # plt.plot(ex.index, ex.Signal)
     # plt.show()
     # get df column names
-    ex = ex.set_index(["injection", "mouse"])
-    # out = demodulate(ex, 'FrameCounter', 'Signal', None, ['injection', 'mouse'])
-
-    out = demodulate(
-        data=pd.DataFrame(
-            {
+    res = demodulate(
+        **dict(
+            data={
                 "timestamps": [1, 2, 3, 4, 5],
                 "signal": [1, 2, 3, 4, 5],
-                "session": ["a", "a", "a", "a", "a"],
-            }
+            },
+            timestamps="timestamps",
+            signal="signal",
         ),
-        timestamps="timestamps",
-        signal="signal",
-        by="session",
     )
-
-    df["dFF"] = out
+    df = df.set_index(["injection", "mouse"])
+    df["dFF"] = demodulate(
+        df, "FrameCounter", "Signal", "Reference", ["injection", "mouse", "Channel"], method="airPLS", smooth=50
+    )
 
     print("halt")
