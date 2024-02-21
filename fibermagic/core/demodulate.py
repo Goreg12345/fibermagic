@@ -21,6 +21,7 @@ def demodulate(
     steps=False,
     method="airPLS",
     smooth=None,
+    standardize=False,
     **kwargs
 ):
     """
@@ -53,8 +54,10 @@ def demodulate(
     method : str
         method to use for demodulation, one of [airPLS, biexponential decay] or None if only artifact removal
         is needed
-    smooth : int
-        length of the smoothing kernel; used to smooth the signal and isosbestic before demodulation
+    smooth : int or None
+        length of the smoothing moving average window; used to smooth the signal and isosbestic before demodulation
+    standardize: bool
+        if True, calculates z-scores from the dFF after demodulation and artifact removal
     kwargs : dict
         parameters for airPLS or biexponential decay.
 
@@ -84,6 +87,7 @@ def demodulate(
         steps=steps,
         method=method,
         smooth=smooth,
+        standardize=standardize,
         **kwargs,
     )
 
@@ -101,6 +105,7 @@ class _Demodulator:
         steps=False,
         method="airPLS",
         smooth=None,
+        standardize=False,
         **kwargs
     ):
 
@@ -174,6 +179,7 @@ class _Demodulator:
             if n_groups == 1:
                 self.by = None
         self.smooth = smooth
+        self.standardize = standardize
 
         # set parameters
         self.lambda_ = kwargs.get("lambda", 5e4)
@@ -194,7 +200,7 @@ class _Demodulator:
             method = self.remove_artifact
 
         # if no isosbestic is provided, only demodulate, no artifact removal
-        if not self.isosbestic:
+        if self.isosbestic is None:
             if self.method == "airPLS":
                 method = self.demodulate_with_airPLS
             elif self.method == "biexponential decay":
@@ -208,11 +214,28 @@ class _Demodulator:
 
         def smooth(method, data):
             data.signal = data.signal.rolling(self.smooth, center=True, min_periods=1).mean()
-            data.isosbestic = data.isosbestic.rolling(self.smooth, center=True, min_periods=1).mean()
+            if self.isosbestic:
+                data.isosbestic = data.isosbestic.rolling(self.smooth, center=True, min_periods=1).mean()
             return method(data)
 
         if self.smooth:
             method = partial(smooth, method)
+
+        def z_score(method, data):
+            # perform demodulation and artifact removal first
+            data = method(data)
+
+            # then, simply calculate z-scores
+            if isinstance(data, pd.DataFrame):  # this is the case if steps is True
+                data["zdFF"] = (data.dFF - data.dFF.median()) / data.dFF.std()
+            else:  # if steps is False, data is a series
+                data = (
+                    data - data.median()
+                ) / data.std()  # use median instead of mean to be robust to big transients
+            return data
+
+        if self.standardize:
+            method = partial(z_score, method)
 
         if not self.by:
             return method(self.data)
@@ -303,6 +326,10 @@ class _Demodulator:
 
         data["signal_wo_slope"] = artifact_signal - data.signal_airPLS_baseline
         data["isosbestic_wo_slope"] = data.isosbestic - data.isosbestic_airPLS_baseline
+
+        data["isosbestic_wo_slope"] = (
+            data.isosbestic_wo_slope - data.isosbestic_wo_slope.median()
+        ) / data.isosbestic_wo_slope.std()
 
         # Align reference signal to calcium signal using non-negative robust linear regression
         lin = Lasso(

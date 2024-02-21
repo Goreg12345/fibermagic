@@ -210,6 +210,43 @@ from ..core.demodulate import _Demodulator
             timestamps="timestamps",
             signal="signal",
         ),
+        # test z-score
+        dict(
+            data=pd.DataFrame(
+                {
+                    "timestamps": [1, 2, 3, 3, 3, 4, 5, 6],
+                    "signal": [
+                        6,
+                        5,
+                        4,
+                        3,
+                        2,
+                        1,
+                        1,
+                        1,
+                    ],
+                    "isosbestic": [
+                        6,
+                        5,
+                        4,
+                        3,
+                        2,
+                        1,
+                        0,
+                        0,
+                    ],
+                    "session": ["a", "a", "a", "a", "a", "a", "a", "a"],
+                    "mouse": ["m1", "m1", "m1", "m1", "m1", "m1", "m1", "m1"],
+                }
+            ).set_index(["session", "mouse"]),
+            timestamps="timestamps",
+            signal="signal",
+            isosbestic="isosbestic",
+            by=["session", "mouse"],
+            method="airPLS",
+            smooth=2,
+            standardize=True,
+        ),
     ]
 )
 def get_demodulator(request):
