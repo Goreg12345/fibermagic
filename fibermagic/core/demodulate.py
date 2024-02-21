@@ -387,8 +387,6 @@ class _Demodulator:
         """
         Low-level function to demodulate signal using biexponential decay
 
-        Attention: at the moment, only uses exponential decay
-
         Parameters
         ----------
         data: pd.DataFrame
@@ -400,22 +398,38 @@ class _Demodulator:
 
         """
 
-        def func(x, a, b, c):
-            return a * np.exp(-b * x) + c
-
-        # estimate y-axis offset using mean of first 1000 points
-        # to get a good start for the curve fit
-        if len(data.signal) > 1000:
-            base = data.signal.iloc[0:1000].mean()
-        else:
-            base = data.signal.mean()
+        def func(x, a, b, c, d, e):
+            return a * np.exp(-b * x) + c * np.exp(-d * x) + e
 
         x = data.timestamps
-        yn = data.signal
-        try:
-            popt, pcov = curve_fit(func, x, yn, p0=np.array([1.98685557e-02, 4.19058443e-06, base]), maxfev=3000)
-        except Exception:
-            popt, pcov = curve_fit(func, x, yn, p0=np.array([1.98685557e-03, 4.19058443e-06, base]), maxfev=3000)
+        y = data.signal
+        maxfev = 20000
+
+        # often, long recordings fail to converge with the default parameters
+        # but with a good initialization, they converge
+        # most recordings should converge with one of the following initializations
+        p0_hypotheses = [
+            (0.0001444429, 0.0001258, 0.00267557, 0.000357409, 0.00302242),
+            (0.0001, 1e-2, 0.0001, 0.0001, 0.01),
+            (0.01444429, 0.0001258, 0.00267557, 0.00357409, 0.00302242),
+            (2.40565424e-03, 2.17178810e-03, 4.26379890e-02, 5.10966801e-05, -2.27121348e-02),
+            (0.00555751, 0.00044251, 0.00192142, 0.00044231, 0.0094028),
+            (2.91087378e-02, 9.59886404e-05, 4.50395693e-03, 1.71131354e-03, -3.08947780e-03),
+            (0.01943434, 0.00030113, 0.00312723, 0.00311773, 0.01080267),
+            (-2.00141250e-11, -4.63104530e-03, 1.12415216e-02, 5.18970857e-04, 1.54544995e-02),
+            (0.01258999, 0.000377, 0.00291031, 0.00311715, 0.00720046),
+            (0.1, 0.1, 0.1, 0.1, 0.012),
+        ]
+        for p0_hypothesis in p0_hypotheses:
+            popt, pcov = curve_fit(func, x, y, p0=p0_hypothesis, maxfev=maxfev)
+            if any(popt > 0.05):
+                print("Curve fit didn't converge! Trying different initialization...")
+            else:
+                break
+        if any(popt > 0.05):
+            print("final parameters are still unrealistic :(")
+        else:
+            print(popt)
 
         data["exponential_decay"] = func(x, *popt)
 
