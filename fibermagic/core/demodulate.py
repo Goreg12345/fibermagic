@@ -421,11 +421,14 @@ class _Demodulator:
             (0.1, 0.1, 0.1, 0.1, 0.012),
         ]
         for p0_hypothesis in p0_hypotheses:
-            popt, pcov = curve_fit(func, x, y, p0=p0_hypothesis, maxfev=maxfev)
-            if any(popt > 0.05):
+            try:
+                popt, pcov = curve_fit(func, x, y, p0=p0_hypothesis, maxfev=maxfev)
+                if any(popt > 0.05):
+                    print("Curve fit didn't converge! Trying different initialization...")
+                else:
+                    break
+            except RuntimeError:
                 print("Curve fit didn't converge! Trying different initialization...")
-            else:
-                break
         if any(popt > 0.05):
             print("final parameters are still unrealistic :(")
         else:
