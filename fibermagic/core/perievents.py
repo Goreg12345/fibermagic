@@ -1,136 +1,105 @@
 import numpy as np
 import pandas as pd
+from tqdm.auto import tqdm
+
+tqdm.pandas()
 
 
-def single_perievent(df, logs, event, window, frequency):
+def perievents(df, time_column, event_column, data_columns, window, by=None, baseline=False, only_average=True):
     """
-    produces a time-frequency plot with each event in one column
-    :param df: pd Series
-    :param logs: logs df with columns event and Frame_Bonsai
-    :param event: str, name of event, e.g. FD to build the trials of
-    :param window: number of SECONDS to cut left and right off
-    :return: event-related df with each trial os a column
+    Calculate peri-event time series for multiple events and data columns.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Input dataframe containing time series data and event markers
+    time_column : str
+        Name of column containing timestamps
+    event_column : str
+        Name of column containing event markers
+    data_columns : str or list of str
+        Name(s) of column(s) containing the data to analyze
+    window : float
+        Time window (in seconds) before and after each event to include
+    by : str or list of str, optional
+        Column name(s) to group data by before processing
+    baseline : str or bool, optional
+        If 'mean', subtract mean of entire window
+        If True, subtract mean of baseline period (from -2*window to -window)
+        If False, no baseline correction
+    only_average : bool, optional
+        If True, return trial-averaged data
+        If False, return data from individual trials
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame containing peri-event time series data with columns:
+        - Event: event marker value
+        - Trial: trial number (if only_average=False)
+        - Relative Time: time relative to event onset
+        - Data columns: time-locked data values
+        Additional grouping columns included if 'by' parameter specified
     """
-    time_locked = pd.DataFrame()
-    i = 1
-    dist = window * frequency
-    for t, row in logs[logs['event'] == event].iterrows():
-        if df.index[0] > t - dist or df.index[-1] < t + dist:
-            continue  # reject events if data don't cover the full window
-        time_locked['Trial {n}'.format(n=i)] = \
-            df.loc[np.arange(t - dist, t + dist)].reset_index(drop=True)
-        i += 1
-    time_locked['average'] = time_locked.mean(axis=1)
+    if isinstance(by, str):
+        by = [by]
+    if isinstance(data_columns, str):
+        data_columns = [data_columns]
 
-    time_locked.index = (time_locked.index - dist) / frequency
-    return time_locked
+    rel_time = np.arange(-window, window, 1 / 30)
+    rel_time_s = pd.Series(rel_time, name="Relative Time")
 
+    def process_group(group):
+        time_locked = []
+        unique_events = group[event_column].unique()
+        unique_events = unique_events[unique_events != 0]  # exclude 0
 
-def perievents(df, logs, window, frequency):
-    """
-    produces perievent slices for each event in logs
-    :param df: df with 'Channel' as index and value columns
-    :param logs: logs df with columns event and same index as df
-    :param window: number of SECONDS to cut left and right off
-    :param frequency: int, frequency of recording in Hz
-    :return: perievent dataframe with additional indices event, timestamp and Trial
-    """
-    channels = df.index.unique(level='Channel')
+        for event in unique_events:
+            onset_times = group.loc[group[event_column] == event, time_column].values
+            for i, t in enumerate(onset_times):
+                # skip if there's not enough data (optional, same logic)
+                if (t - window - 1 < group[time_column].min()) or (t + window + 1 > group[time_column].max()):
+                    continue
 
-    if 'Channel' not in logs.index.names:  # make indices the same to intersect
-        logs['Channel'] = [list(channels)] * len(logs)
-        logs = logs.explode('Channel').set_index('Channel', append=True)
-        logs = logs.swaplevel(-1, -2)
-    logs = logs.loc[df.index.intersection(logs.index)]  # remove events that are not recorded
+                # subset
+                sub = group[(group[time_column] >= t - window) & (group[time_column] < t + window)]
+                sub = sub[[time_column] + data_columns].copy()
 
-    df = df.sort_index()  # to slice it in frame ranges
-    logs['Trial'] = logs.groupby(logs.index.names[:-1]).cumcount()
-    peri = list()
-    timestamps = np.arange(-window, window + 1e-9, 1 / frequency)
+                # shift time to relative
+                sub["Relative Time"] = sub[time_column] - t
 
-    # extract slice for each event and concat
-    for index, row in logs.iterrows():
-        start = index[:-1] + (index[-1] - window * frequency,)
-        end = index[:-1] + (index[-1] + window * frequency,)
+                # merge_asof
+                merged = pd.merge_asof(rel_time_s, sub, on="Relative Time", direction="nearest")
 
-        single_event = df.loc[start:end]
-        single_event[row.index] = row
-        single_event['Timestamp'] = timestamps
-        peri.append(single_event)  # Set on copy warning can be ignored because it is a copy anyways
-    peri = pd.concat(peri)
+                # add event/trial
+                merged["Event"] = event
+                merged["Trial"] = i
 
-    peri = peri.set_index(list(logs.columns), append=True)
-    peri = peri.reset_index(['FrameCounter'], drop=True)
-    return peri
+                # baseline if needed
+                if baseline:
+                    if baseline == "mean":
+                        merged[data_columns] = merged[data_columns] - merged[data_columns].mean()
+                    else:
+                        # e.g. baseline from [t - 2*window, t - window]
+                        base = group[(group[time_column] >= t - 2 * window) & (group[time_column] < t - window)]
+                        for col in data_columns:
+                            merged[col] = merged[col] - base[col].mean()
 
+                merged = merged.set_index(["Event", "Trial", "Relative Time"])
+                time_locked.append(merged)
 
-def perievents_2D(df, logs, window, frequency):
-    """
-    produces a time-frequency plot with each event in one column
-    :param df: pd Series
-    :param logs: logs df with columns event and Frame_Bonsai
-    :param event: str, name of event, e.g. FD to build the trials of
-    :param window: number of SECONDS to cut left and right off
-    :return: event-related df with each trial os a column
-    """
-    # TODO: make a good documentation for this shit
-    channels = df.columns
+        if not time_locked:
+            return pd.DataFrame()  # empty if no events
 
-    # stack all idx but not the FrameCounter to be able to select and slice
-    logs['channel'] = [list(channels)] * len(logs)
-    logs = logs.explode('channel')
-    logs = logs.loc[df.index.intersection(logs.index)]
-    logs = logs.reset_index(level=-1).set_index(['channel', 'FrameCounter'], append=True)
+        time_locked = pd.concat(time_locked, axis=0)
 
-    df_stacked = df.stack().unstack(level=(*df.index.names[:-1], -1)).sort_index()
+        if only_average:
+            # average over trials
+            time_locked = time_locked.groupby(["Event", "Relative Time"])[data_columns].mean()
 
-    def f(row):
-        idx = row.name[:-1]
-        frame = row.name[-1]
-        s_df = df_stacked[idx].dropna().sort_index()
-        s_df = s_df.loc[frame - window * frequency:frame + window * frequency]
-        return s_df
+        return time_locked
 
-    def shift_left(df):
-        v = df.values
-        # TODO: replace with numpy
-        a = [[n] * v.shape[1] for n in range(v.shape[0])]
-        b = pd.isnull(v).argsort(axis=1, kind='mergesort')
-        df.values[:] = v[a, b]
-        df = df.dropna(axis=1, how='all').dropna(axis=0, how='any')
-        df = df.rename(columns={a: b for (a, b) in zip(
-            df.columns.values, np.arange(-window, window + 1e-6, 1 / frequency))})
-        df = df.stack().unstack(level=('channel', -1))
-        return df
-
-    peri = logs.apply(f, axis=1)
-    peri['event'] = logs.event
-    peri = peri.set_index('event', append=True)
-    peri = shift_left(peri)
-    return enumerate_trials(peri)
-
-
-def enumerate_trials(perievents):
-    """
-    adds an index to perievents_2D that counts the number of trials per session and event
-    starting with 1, removes FrameCounter index
-    :param perievents: perievents df, non-column based format
-    :return: perievents df with additional index Trial
-    """
-    # unstack indices to make several counts for each event and session
-    perievents = perievents.reset_index('FrameCounter', drop=True)
-    idx = list(perievents.index.names)
-    perievents['Trial'] = perievents.groupby(idx).cumcount() + 1
-    return perievents.set_index('Trial', append=True)
-
-
-def perievents_to_columns(perievents):
-    """
-    rearranges perievents to an column-based format
-    that makes it easier to use for plotting frameworks
-    :param perievents: perievent df
-    :return: perievent df with one column zdFF and other dimensions as index
-    """
-    # restack to make a column-based format
-    perievents = perievents.stack(level=['channel', 'FrameCounter'])
-    return perievents.to_frame('zdFF')
+    if by is None:
+        return process_group(df).reset_index()
+    else:
+        return df.groupby(by, sort=False).progress_apply(process_group).reset_index()

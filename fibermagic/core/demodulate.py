@@ -62,7 +62,7 @@ def demodulate(
         parameters for airPLS or biexponential decay.
 
         For airPLS:
-        lambda: parameter for airPLS; The larger lambda is, the smoother the resulting background
+        lambda_: parameter for airPLS; The larger lambda is, the smoother the resulting background
         porder: parameter for airPLS; adaptive iteratively reweighted penalized least squares for baseline fitting
         itermax: parameter for airPLS; maximum number of iterations
         lambda_artifact: parameter for artifact removal; The larger lambda is, the smoother the resulting
@@ -182,7 +182,7 @@ class _Demodulator:
         self.standardize = standardize
 
         # set parameters
-        self.lambda_ = kwargs.get("lambda", 5e4)
+        self.lambda_ = kwargs.get("lambda_", 5e4)
         self.porder = kwargs.get("porder", 1)
         self.itermax = kwargs.get("itermax", 50)
 

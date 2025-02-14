@@ -5,13 +5,17 @@ from io import BytesIO
 
 def download(project):
     if project == "arena-data":
-        url = "http://georglange.com/fibermagic/arena-data.zip"
+        url = "https://fibermagic.org/datasets/arena-data.zip"
     elif project == "tutorial":
-        url = "http://georglange.com/fibermagic/tutorial.zip"
+        url = "https://fibermagic.org/datasets/tutorial.zip"
     elif project == "fdrd2xadora_PR_Pilot":
-        url = "http://georglange.com/fibermagic/fdrd2xadora_PR_Pilot.zip"
+        url = "https://fibermagic.org/datasets/fdrd2xadora_PR_Pilot.zip"
     elif project == "fdrd2xadora_PR_NAcc":
-        url = "http://georglange.com/fibermagic/fdrd2xadora_PR_NAcc.zip"
+        url = "https://fibermagic.org/datasets/fdrd2xadora_PR_NAcc.zip"
+    elif project == "tutorial-1":
+        url = "https://fibermagic.org/datasets/tutorial-1.zip"
+    elif project == "tutorial-2":
+        url = "https://fibermagic.org/datasets/tutorial-2.zip"
     else:
         print("Requested dataset not found!")
         return
